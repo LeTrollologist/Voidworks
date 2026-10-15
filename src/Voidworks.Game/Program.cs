@@ -1,6 +1,6 @@
 using System;
 using System.Linq;
-using System.Threading;
+using Voidworks.Engine;
 using Voidworks.Sim.Atmosphere;
 using Voidworks.Sim.Crew;
 using Voidworks.Sim.Items;
@@ -8,20 +8,23 @@ using Voidworks.Sim.Jobs;
 using Voidworks.Sim.Ship;
 
 Console.WriteLine("==================================================================");
-Console.WriteLine("                  VOIDWORKS - LIVING CREW SIMULATION              ");
+Console.WriteLine("                 VOIDWORKS - THE LIVING HULL                      ");
 Console.WriteLine("          \"Keep the ship running. Keep the crew alive.\"           ");
 Console.WriteLine("==================================================================\n");
 
-// 1. Ship layout: Storage Bay and Engineering
-var grid = new ShipGrid(14, 7);
-grid.BuildRoom(1, 1, 6, 5, TileType.HullWall);
-grid.BuildRoom(6, 1, 12, 5, TileType.HullWall);
-grid.PlaceDoor(6, 3, DoorState.Closed); // Bulkhead closed initially
+// 1. Build Ship Layout: Storage Bay, Airlock, Corridor, and Engineering
+// 16x8 Ship Grid
+var grid = new ShipGrid(16, 8);
+grid.BuildRoom(1, 1, 6, 6, TileType.HullWall);  // Storage & Quarters: (1,1) to (6,6)
+grid.BuildRoom(6, 1, 14, 6, TileType.HullWall); // Engineering Bay:   (6,1) to (14,6)
+
+// Dividing Bulkhead Door at (6, 3)
+grid.PlaceDoor(6, 3, DoorState.Closed);
 
 var jobManager = new JobManager();
 var atmosphereSolver = new AtmosphereSolver();
 
-// 2. Physical items stored in Storage Bay
+// 2. Position physical items in Storage Locker
 var suit = new Item(ItemType.EvaSuit, new GridCoord(2, 2), weightKg: 15.0);
 var tank = new Item(ItemType.OxygenTank, new GridCoord(2, 3), weightKg: 8.0);
 var torch = new Item(ItemType.WeldingTorch, new GridCoord(2, 4), weightKg: 3.0);
@@ -32,122 +35,55 @@ jobManager.AddItem(tank);
 jobManager.AddItem(torch);
 jobManager.AddItem(plate);
 
-// 3. Crew member: Engineer Miller in Storage Bay
+// 3. Spawn Crew Member: Engineer Miller
 var crew = new CrewMember("Engineer Miller", new GridCoord(4, 3));
-crew.MoveSpeed = 4.0; // fast simulation movement
-var crewAI = new CrewAI(crew);
+crew.MoveSpeed = 2.5;
 
-Console.WriteLine("[Status] Ship ready. Physical equipment positioned in Storage Locker.");
-Console.WriteLine($"[Status] Crew member '{crew.Name}' stationed at {crew.Position}.");
-RenderViewport(grid, jobManager, crew);
+var sim = new SimulationState(grid, atmosphereSolver, jobManager);
+sim.Crew.Add(new CrewAI(crew));
 
-// 4. Trigger micrometeorite breach in Engineering
-Console.WriteLine("\n>>> [EVENT] ALERT! Micrometeorite impact detected at (12, 3)!");
-Console.WriteLine(">>> [EVENT] Engineering is rapidly depressurizing into vacuum!\n");
-grid.BreachTile(12, 3);
+Console.WriteLine("[Status] Ship systems and life support online.");
+Console.WriteLine($"[Status] Crew Member '{crew.Name}' stationed at {crew.Position}.");
+Console.WriteLine("[Status] Physical equipment stored in Storage Bay (EVA Suit, Tank, Torch, Steel Plate).");
 
-// World scans and registers breach work order
+// Check if running in headless / console mode
+bool forceConsole = args.Contains("--console") || args.Contains("--headless");
+
+if (!forceConsole)
+{
+    try
+    {
+        Console.WriteLine("\n[Window] Initializing BRUTAL 2D Viewport (GLFW + OpenGL 3.3 + Dear ImGui)...");
+        Console.WriteLine("[Controls] Pan: Middle Click + Drag | Zoom: Mouse Wheel | Select: Left Click | Pause: Spacebar\n");
+
+        var app = new EngineApp();
+        app.Run(sim);
+        return;
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"[Window Warning] Could not launch graphical window ({ex.Message}).");
+        Console.WriteLine("[Window Warning] Falling back to automated headless console simulation...\n");
+    }
+}
+
+// Fallback / headless console runner:
+Console.WriteLine(">>> [EVENT] ALERT! Micrometeorite impact detected at (14, 3)!");
+grid.BreachTile(14, 3);
 jobManager.ScanWorldForEmergencies(grid);
 
-// 5. Run simulation loop
 double simTime = 0.0;
 double dt = 0.1;
-int step = 0;
-bool breachSealed = false;
-
 while (simTime < 25.0)
 {
-    atmosphereSolver.Tick(grid, dt);
-    crewAI.Tick(grid, jobManager, dt);
+    sim.Step(dt);
     simTime += dt;
-    step++;
 
-    // Render snapshot every ~1.5 simulation seconds or on key state changes
-    if (step % 15 == 0 || (!breachSealed && !grid[12, 3].IsBreached))
+    if (!grid[14, 3].IsBreached)
     {
-        Console.WriteLine($"\n--- [T+{simTime:F1}s] Action: {crewAI.CurrentActivity} ---");
-        RenderViewport(grid, jobManager, crew);
-
-        if (!breachSealed && !grid[12, 3].IsBreached)
-        {
-            breachSealed = true;
-            Console.WriteLine("\n>>> [SUCCESS] Hull breach successfully welded shut by Engineer Miller!");
-            Console.WriteLine(">>> [SUCCESS] Atmosphere containment restored.\n");
-        }
-    }
-
-    if (breachSealed && crewAI.CurrentActivity == "Idle")
-    {
-        break; // Mission accomplished
+        Console.WriteLine($"\n[T+{simTime:F1}s] Breach at (14, 3) successfully repaired by {crew.Name}!");
+        break;
     }
 }
 
-Console.WriteLine("\n==================================================================");
-Console.WriteLine($"Mission Report:");
-Console.WriteLine($"Crew Status:     {crew.Name} - Health: {crew.Physiology.Health:F0}%, O2 Sat: {crew.Physiology.OxygenSaturation:F0}%");
-Console.WriteLine($"Suit Equipped:   {(crew.IsEquippedWithSuit ? "YES (EVA Suit + Tank)" : "NO")}");
-Console.WriteLine($"Remaining Tank:  {crew.EquippedOxygenTank?.StoredOxygenMoles:F2} moles O2");
-Console.WriteLine($"Breach State:    {(grid[12, 3].IsBreached ? "BREACHED" : "SEALED AND REPAIRED")}");
-Console.WriteLine($"Bridge Pressure: {grid[3, 3].Atmosphere.PressureKPa:F1} kPa");
-Console.WriteLine("==================================================================");
-
-static void RenderViewport(ShipGrid grid, JobManager jobManager, CrewMember crew)
-{
-    for (int y = 0; y < grid.Height; y++)
-    {
-        for (int x = 0; x < grid.Width; x++)
-        {
-            var coord = new GridCoord(x, y);
-
-            if (crew.Position == coord)
-            {
-                Console.Write(" @ ");
-            }
-            else
-            {
-                var item = jobManager.WorldItems.FirstOrDefault(i => i.Position == coord && !i.IsCarried);
-                if (item != null)
-                {
-                    char icon = item.Type switch
-                    {
-                        ItemType.EvaSuit => 'S',
-                        ItemType.OxygenTank => 'O',
-                        ItemType.WeldingTorch => 'T',
-                        ItemType.SteelPlate => 'P',
-                        _ => '?'
-                    };
-                    Console.Write($" {icon} ");
-                }
-                else
-                {
-                    var tile = grid[coord];
-                    if (tile.IsBreached)
-                    {
-                        Console.Write(" ! ");
-                    }
-                    else if (tile.Type == TileType.HullWall)
-                    {
-                        Console.Write(" # ");
-                    }
-                    else if (tile.Type == TileType.Door)
-                    {
-                        Console.Write(tile.DoorState == DoorState.Open ? " / " : " | ");
-                    }
-                    else if (tile.Type == TileType.Space)
-                    {
-                        Console.Write(" . ");
-                    }
-                    else
-                    {
-                        double p = tile.Atmosphere.PressureKPa;
-                        if (p > 80.0) Console.Write("   ");      // Normal clear floor
-                        else if (p > 30.0) Console.Write(" ~ "); // Decompressing mist
-                        else Console.Write(" : ");               // Near vacuum haze
-                    }
-                }
-            }
-        }
-        Console.WriteLine();
-    }
-    Console.WriteLine("Legend: @ Crew, # Wall, | Door, ! Breach, S Suit, O Tank, T Torch, P Steel Plate");
-}
+Console.WriteLine($"Mission Complete. Crew Health: {crew.Physiology.Health:F0}%, O2 Saturation: {crew.Physiology.OxygenSaturation:F0}%.");
