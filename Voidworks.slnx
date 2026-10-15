@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Voidworks.Engine/Voidworks.Engine.csproj" />
+    <Project Path="src/Voidworks.Game/Voidworks.Game.csproj" />
+    <Project Path="src/Voidworks.Sim/Voidworks.Sim.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Voidworks.Tests/Voidworks.Tests.csproj" />
+  </Folder>
+</Solution>
