@@ -6,6 +6,7 @@ using Brutal.ImGuiApi;
 using Brutal.ImGuiApi.Backends;
 using Brutal.Numerics;
 using Voidworks.Sim.Crew;
+using Voidworks.Sim.Machinery;
 using Voidworks.Sim.Ship;
 
 namespace Voidworks.Engine;
@@ -19,6 +20,7 @@ public sealed class EngineApp
     private OverlayMode _overlayMode = OverlayMode.Normal;
     private GridCoord? _selectedTile = new GridCoord(3, 3);
     private CrewMember? _selectedCrew;
+    private Machine? _selectedMachine;
 
     private float2 _lastMousePos;
     private bool _isPanning = false;
@@ -102,7 +104,7 @@ public sealed class EngineApp
             // 1. Advance simulation
             sim.Update(deltaTime);
 
-            // 2. Handle input for camera pan and tile/crew selection
+            // 2. Handle input for camera pan and tile/crew/machine selection
             var winSize = window.Size;
             var viewportSize = new float2(winSize.X, winSize.Y);
             var viewportCenter = viewportSize * 0.5f;
@@ -145,6 +147,13 @@ public sealed class EngineApp
                         {
                             _selectedCrew = crewOnTile.Crew;
                         }
+
+                        // Check if a machine is on this tile
+                        var machOnTile = sim.Machines.FirstOrDefault(m => m.Position == hoveredCoord.Value);
+                        if (machOnTile != null)
+                        {
+                            _selectedMachine = machOnTile;
+                        }
                     }
                 }
             }
@@ -167,10 +176,11 @@ public sealed class EngineApp
                 _overlayMode,
                 hoveredCoord,
                 _selectedTile,
-                _selectedCrew);
+                _selectedCrew,
+                _selectedMachine);
 
             // Render interactive UI panels
-            _ui.Render(sim, ref _overlayMode, ref _selectedTile, ref _selectedCrew);
+            _ui.Render(sim, ref _overlayMode, ref _selectedTile, ref _selectedCrew, ref _selectedMachine);
 
             // 4. Render and Swap
             ImGui.Render();

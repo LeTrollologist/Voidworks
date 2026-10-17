@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using Voidworks.Sim.Atmosphere;
 using Voidworks.Sim.Crew;
 using Voidworks.Sim.Jobs;
+using Voidworks.Sim.Machinery;
+using Voidworks.Sim.Power;
 using Voidworks.Sim.Ship;
 
 namespace Voidworks.Engine;
@@ -11,8 +13,11 @@ public sealed class SimulationState
 {
     public ShipGrid Grid { get; }
     public AtmosphereSolver AtmosphereSolver { get; }
+    public PowerGridSolver PowerGridSolver { get; } = new();
     public JobManager JobManager { get; }
     public List<CrewAI> Crew { get; } = new();
+    public List<Machine> Machines { get; } = new();
+    public HashSet<GridCoord> Cables { get; } = new();
 
     public double SimTime { get; private set; }
     public bool IsPaused { get; set; } = false;
@@ -30,12 +35,30 @@ public sealed class SimulationState
 
     public void Step(double dt)
     {
+        // 1. Solve power grid
+        PowerGridSolver.Tick(Grid, Machines, Cables, dt);
+
+        // 2. Tick machines (life support, generators)
+        foreach (var m in Machines)
+        {
+            if (Grid.IsInBounds(m.Position))
+            {
+                m.Tick(Grid[m.Position], dt);
+            }
+        }
+
+        // 3. Solve atmosphere flow & venting
         AtmosphereSolver.Tick(Grid, dt);
+
+        // 4. Tick crew physiology & autonomous AI
         foreach (var c in Crew)
         {
             c.Tick(Grid, JobManager, dt);
         }
+
+        // 5. Detect world emergencies (breaches, broken systems)
         JobManager.ScanWorldForEmergencies(Grid);
+
         SimTime += dt;
     }
 
@@ -43,7 +66,6 @@ public sealed class SimulationState
     {
         if (IsPaused || realDeltaTime <= 0) return;
 
-        // Cap deltaTime to avoid spiral of death on long pauses
         double clampedDelta = Math.Min(realDeltaTime, 0.25);
         _accumulator += clampedDelta * TimeScale;
 

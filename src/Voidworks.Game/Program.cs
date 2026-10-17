@@ -35,14 +35,35 @@ jobManager.AddItem(tank);
 jobManager.AddItem(torch);
 jobManager.AddItem(plate);
 
-// 3. Spawn Crew Member: Engineer Miller
+// 3. Spawn Machinery (Reactor, Battery, Life Support)
+var reactor = new Machine(MachineType.Reactor, new GridCoord(13, 2), "Thorium Core");
+var battery = new Machine(MachineType.Battery, new GridCoord(13, 4), "Main Capacitor");
+var o2Gen = new Machine(MachineType.OxygenGenerator, new GridCoord(3, 4), "Electrolyzer Alpha");
+var scrubber = new Machine(MachineType.CarbonScrubber, new GridCoord(4, 4), "CO2 Scrubber 01");
+
+// 4. Spawn Crew Member: Engineer Miller
 var crew = new CrewMember("Engineer Miller", new GridCoord(4, 3));
 crew.MoveSpeed = 2.5;
 
 var sim = new SimulationState(grid, atmosphereSolver, jobManager);
+sim.Machines.Add(reactor);
+sim.Machines.Add(battery);
+sim.Machines.Add(o2Gen);
+sim.Machines.Add(scrubber);
+
+// Connect Power Grid with cables
+for (int x = 3; x <= 13; x++)
+{
+    sim.Cables.Add(new GridCoord(x, 3));
+}
+sim.Cables.Add(new GridCoord(13, 2));
+sim.Cables.Add(new GridCoord(13, 4));
+sim.Cables.Add(new GridCoord(4, 4));
+sim.Cables.Add(new GridCoord(3, 4));
+
 sim.Crew.Add(new CrewAI(crew));
 
-Console.WriteLine("[Status] Ship systems and life support online.");
+Console.WriteLine("[Status] Ship power grid, life support, and machinery online.");
 Console.WriteLine($"[Status] Crew Member '{crew.Name}' stationed at {crew.Position}.");
 Console.WriteLine("[Status] Physical equipment stored in Storage Bay (EVA Suit, Tank, Torch, Steel Plate).");
 

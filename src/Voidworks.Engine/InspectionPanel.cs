@@ -4,6 +4,7 @@ using Brutal.ImGuiApi;
 using Brutal.Numerics;
 using Voidworks.Sim.Crew;
 using Voidworks.Sim.Items;
+using Voidworks.Sim.Machinery;
 using Voidworks.Sim.Ship;
 
 namespace Voidworks.Engine;
@@ -14,17 +15,18 @@ public sealed class InspectionPanel
         SimulationState sim,
         ref OverlayMode overlayMode,
         ref GridCoord? selectedTile,
-        ref CrewMember? selectedCrew)
+        ref CrewMember? selectedCrew,
+        ref Machine? selectedMachine)
     {
         RenderTopTelemetryBar(sim);
         RenderControlToolbar(sim, ref overlayMode);
-        RenderInspectorSidebar(sim, selectedTile, selectedCrew);
+        RenderInspectorSidebar(sim, selectedTile, selectedCrew, ref selectedMachine);
     }
 
     private void RenderTopTelemetryBar(SimulationState sim)
     {
         ImGui.SetNextWindowPos(new float2(10f, 10f), ImGuiCond.Always);
-        ImGui.SetNextWindowSize(new float2(1100f, 85f), ImGuiCond.Always);
+        ImGui.SetNextWindowSize(new float2(1250f, 85f), ImGuiCond.Always);
 
         var flags = ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoTitleBar;
         if (ImGui.Begin("TelemetryBar", flags))
@@ -51,25 +53,26 @@ public sealed class InspectionPanel
 
             // 2. Oxygen
             double bridgeO2 = sim.Grid.IsInBounds(3, 3) ? sim.Grid[3, 3].Atmosphere.OxygenPercentage : 0.0;
-            ImGui.SameLine(320f);
+            ImGui.SameLine(250f);
             ImGui.TextColored(new float4(0.9f, 0.9f, 0.9f, 1.0f), "OXYGEN: ");
             ImGui.SameLine();
             ImGui.TextColored(bridgeO2 > 18 ? new float4(0.2f, 1.0f, 0.4f, 1.0f) : new float4(1.0f, 0.3f, 0.2f, 1.0f), $"{bridgeO2:F1}%");
-            ImGui.SameLine();
-            ImGui.TextDisabled("Atmosphere");
 
-            // 3. Crew
-            int aliveCrew = sim.Crew.Count(c => c.Crew.Physiology.IsAlive);
-            ImGui.SameLine(600f);
-            ImGui.TextColored(new float4(0.9f, 0.9f, 0.9f, 1.0f), "CREW: ");
+            // 3. Power
+            ImGui.SameLine(460f);
+            ImGui.TextColored(new float4(0.9f, 0.9f, 0.9f, 1.0f), "POWER: ");
             ImGui.SameLine();
-            ImGui.TextColored(new float4(0.2f, 0.8f, 1.0f, 1.0f), $"{aliveCrew} / {sim.Crew.Count}");
-            ImGui.SameLine();
-            ImGui.TextDisabled("Alive");
+            ImGui.TextColored(new float4(1.0f, 0.85f, 0.2f, 1.0f), $"{sim.PowerGridSolver.TotalGenerationKW:F1} / {sim.PowerGridSolver.TotalDemandKW:F1} kW");
 
-            // 4. Hull
+            // 4. Battery
+            ImGui.SameLine(720f);
+            ImGui.TextColored(new float4(0.9f, 0.9f, 0.9f, 1.0f), "BATTERY: ");
+            ImGui.SameLine();
+            ImGui.TextColored(new float4(0.2f, 0.85f, 1.0f, 1.0f), $"{sim.PowerGridSolver.BatteryPercentage:F0}% ({sim.PowerGridSolver.TotalBatteryStoredKWh:F1} kWh)");
+
+            // 5. Hull
             int activeBreaches = sim.Grid.AllTiles().Count(t => t.IsBreached);
-            ImGui.SameLine(850f);
+            ImGui.SameLine(1000f);
             ImGui.TextColored(new float4(0.9f, 0.9f, 0.9f, 1.0f), "HULL: ");
             ImGui.SameLine();
             if (activeBreaches > 0)
@@ -83,12 +86,11 @@ public sealed class InspectionPanel
     private void RenderControlToolbar(SimulationState sim, ref OverlayMode overlayMode)
     {
         ImGui.SetNextWindowPos(new float2(10f, 105f), ImGuiCond.Always);
-        ImGui.SetNextWindowSize(new float2(1100f, 50f), ImGuiCond.Always);
+        ImGui.SetNextWindowSize(new float2(1250f, 50f), ImGuiCond.Always);
 
         var flags = ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoTitleBar;
         if (ImGui.Begin("ControlToolbar", flags))
         {
-            // Simulation Controls
             if (ImGui.Button(sim.IsPaused ? "  PLAY  " : " PAUSE "))
             {
                 sim.IsPaused = !sim.IsPaused;
@@ -118,15 +120,16 @@ public sealed class InspectionPanel
             ImGui.SameLine();
             if (ImGui.RadioButton("Oxygen", overlayMode == OverlayMode.Oxygen)) overlayMode = OverlayMode.Oxygen;
             ImGui.SameLine();
+            if (ImGui.RadioButton("Power Grid", overlayMode == OverlayMode.Power)) overlayMode = OverlayMode.Power;
+            ImGui.SameLine();
             if (ImGui.RadioButton("Hazards", overlayMode == OverlayMode.Hazards)) overlayMode = OverlayMode.Hazards;
 
-            ImGui.SameLine(880f);
+            ImGui.SameLine(1030f);
             if (ImGui.Button(" TRIGGER BREACH "))
             {
-                // Trigger breach on Engineering wall at (12, 3)
-                if (sim.Grid.IsInBounds(12, 3))
+                if (sim.Grid.IsInBounds(14, 3))
                 {
-                    sim.Grid.BreachTile(12, 3);
+                    sim.Grid.BreachTile(14, 3);
                     sim.JobManager.ScanWorldForEmergencies(sim.Grid);
                 }
             }
@@ -134,14 +137,67 @@ public sealed class InspectionPanel
         ImGui.End();
     }
 
-    private void RenderInspectorSidebar(SimulationState sim, GridCoord? selectedTile, CrewMember? selectedCrew)
+    private void RenderInspectorSidebar(
+        SimulationState sim,
+        GridCoord? selectedTile,
+        CrewMember? selectedCrew,
+        ref Machine? selectedMachine)
     {
-        ImGui.SetNextWindowPos(new float2(1130f, 10f), ImGuiCond.Always);
-        ImGui.SetNextWindowSize(new float2(450f, 850f), ImGuiCond.Always);
+        ImGui.SetNextWindowPos(new float2(1280f, 10f), ImGuiCond.Always);
+        ImGui.SetNextWindowSize(new float2(420f, 850f), ImGuiCond.Always);
 
         if (ImGui.Begin("Inspector Panel", ImGuiWindowFlags.NoCollapse))
         {
-            // 1. Crew Selection Details
+            // Check if selected tile has a machine
+            if (selectedTile.HasValue)
+            {
+                var machOnTile = sim.Machines.FirstOrDefault(m => m.Position == selectedTile.Value);
+                if (machOnTile != null)
+                {
+                    selectedMachine = machOnTile;
+                }
+            }
+
+            // 1. Machine Details
+            if (selectedMachine != null)
+            {
+                ImGui.TextColored(new float4(1.0f, 0.8f, 0.2f, 1.0f), $"SELECTED MACHINE: {selectedMachine.Name.ToUpper()}");
+                ImGui.Separator();
+
+                ImGui.Text($"Machine Type: {selectedMachine.Type}");
+                ImGui.Text($"Position: {selectedMachine.Position}");
+                ImGui.Text($"Power Status: {(selectedMachine.IsPowered ? "POWERED (ACTIVE)" : "UNPOWERED (OFFLINE)")}");
+
+                if (ImGui.Button(selectedMachine.IsOnline ? "Turn Machine OFF" : "Turn Machine ON"))
+                {
+                    selectedMachine.IsOnline = !selectedMachine.IsOnline;
+                }
+
+                ImGui.Spacing();
+                if (selectedMachine.Type == MachineType.Reactor)
+                {
+                    ImGui.Text($"Output Generation: {selectedMachine.PowerProductionKW:F1} kW");
+                }
+                else if (selectedMachine.Type == MachineType.Battery)
+                {
+                    ImGui.Text($"Capacity: {selectedMachine.BatteryCapacityKWh:F1} kWh");
+                    ImGui.Text($"Stored Energy: {selectedMachine.BatteryStoredKWh:F2} kWh");
+                    float pct = selectedMachine.BatteryCapacityKWh > 0 ? (float)(selectedMachine.BatteryStoredKWh / selectedMachine.BatteryCapacityKWh) : 0f;
+                    ImGui.ProgressBar(pct, new float2(280f, 18f), $"{pct * 100f:F0}%");
+                }
+                else
+                {
+                    ImGui.Text($"Power Draw: {selectedMachine.PowerConsumptionKW:F1} kW");
+                    if (selectedMachine.Type == MachineType.OxygenGenerator)
+                        ImGui.Text($"O2 Output: +{selectedMachine.O2GenerationRatePerSecond:F2} mol/s");
+                    else if (selectedMachine.Type == MachineType.CarbonScrubber)
+                        ImGui.Text($"CO2 Scrubbing: -{selectedMachine.CO2ScrubbingRatePerSecond:F2} mol/s");
+                }
+
+                ImGui.Separator();
+            }
+
+            // 2. Crew Selection Details
             if (selectedCrew != null)
             {
                 ImGui.TextColored(new float4(0.2f, 0.8f, 1.0f, 1.0f), $"SELECTED CREW: {selectedCrew.Name.ToUpper()}");
@@ -150,10 +206,10 @@ public sealed class InspectionPanel
                 var ai = sim.Crew.FirstOrDefault(c => c.Crew.Id == selectedCrew.Id);
 
                 ImGui.Text("Health:");
-                ImGui.ProgressBar((float)(selectedCrew.Physiology.Health / 100.0), new float2(300f, 18f), $"{selectedCrew.Physiology.Health:F0}%");
+                ImGui.ProgressBar((float)(selectedCrew.Physiology.Health / 100.0), new float2(280f, 18f), $"{selectedCrew.Physiology.Health:F0}%");
 
                 ImGui.Text("Oxygen Saturation:");
-                ImGui.ProgressBar((float)(selectedCrew.Physiology.OxygenSaturation / 100.0), new float2(300f, 18f), $"{selectedCrew.Physiology.OxygenSaturation:F0}%");
+                ImGui.ProgressBar((float)(selectedCrew.Physiology.OxygenSaturation / 100.0), new float2(280f, 18f), $"{selectedCrew.Physiology.OxygenSaturation:F0}%");
 
                 ImGui.Spacing();
                 ImGui.Text($"Position: {selectedCrew.Position}");
@@ -169,7 +225,7 @@ public sealed class InspectionPanel
 
                 if (ai?.CurrentJob != null)
                 {
-                    ImGui.Text($"Active Task: {ai.CurrentJob.Name} (Priority {ai.CurrentJob.Priority})");
+                    ImGui.Text($"Active Task: {ai.CurrentJob.Name}");
                 }
 
                 ImGui.Spacing();
@@ -189,7 +245,7 @@ public sealed class InspectionPanel
                 ImGui.Separator();
             }
 
-            // 2. Tile Selection Details
+            // 3. Tile Selection Details
             if (selectedTile.HasValue && sim.Grid.IsInBounds(selectedTile.Value))
             {
                 var coord = selectedTile.Value;
@@ -200,7 +256,15 @@ public sealed class InspectionPanel
 
                 ImGui.Text($"Structure Type: {tile.Type}");
                 ImGui.Text($"Airtight: {(tile.IsAirtight ? "YES" : "NO")}");
-                ImGui.Text($"Vacuum Sink: {(tile.IsVacuumSink ? "YES" : "NO")}");
+                ImGui.Text($"Has Cable: {(sim.Cables.Contains(coord) ? "YES" : "NO")}");
+
+                if (ImGui.Button(sim.Cables.Contains(coord) ? "Remove Cable" : "Lay Power Cable"))
+                {
+                    if (sim.Cables.Contains(coord))
+                        sim.Cables.Remove(coord);
+                    else
+                        sim.Cables.Add(coord);
+                }
 
                 if (tile.Type == TileType.Door)
                 {
@@ -234,9 +298,7 @@ public sealed class InspectionPanel
                 ImGui.Text($"  Oxygen:         {tile.Atmosphere.Oxygen:F2} mol ({tile.Atmosphere.OxygenPercentage:F1}%)");
                 ImGui.Text($"  Nitrogen:       {tile.Atmosphere.Nitrogen:F2} mol");
                 ImGui.Text($"  Carbon Dioxide: {tile.Atmosphere.CarbonDioxide:F4} mol");
-                ImGui.Text($"  Temperature:    {tile.Atmosphere.TemperatureK:F1} K ({tile.Atmosphere.TemperatureK - 273.15:F1} C)");
 
-                // Items on this tile
                 var itemsHere = sim.JobManager.WorldItems.Where(i => i.Position == coord && !i.IsCarried).ToList();
                 if (itemsHere.Count > 0)
                 {
@@ -248,12 +310,12 @@ public sealed class InspectionPanel
                     }
                 }
             }
-            else if (selectedCrew == null)
+            else if (selectedCrew == null && selectedMachine == null)
             {
-                ImGui.TextDisabled("Click on any crew member or ship tile to inspect details.");
+                ImGui.TextDisabled("Click on any crew member, machine, or ship tile to inspect details.");
                 ImGui.Spacing();
                 ImGui.Text("Controls:");
-                ImGui.BulletText("Left Click: Select crew or tile");
+                ImGui.BulletText("Left Click: Select crew, machine, or tile");
                 ImGui.BulletText("Middle Click + Drag: Pan camera");
                 ImGui.BulletText("Mouse Scroll: Zoom in / out");
                 ImGui.BulletText("Spacebar: Pause / Resume");

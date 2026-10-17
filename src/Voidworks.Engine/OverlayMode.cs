@@ -5,5 +5,6 @@ public enum OverlayMode
     Normal,
     Pressure,
     Oxygen,
-    Hazards
+    Hazards,
+    Power
 }
