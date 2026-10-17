@@ -11,6 +11,8 @@ public sealed class CrewMember
     public Guid Id { get; } = Guid.NewGuid();
     public string Name { get; set; }
     public GridCoord Position { get; set; }
+    public string Role { get; set; } = "Generalist";
+    public GridCoord? AssignedBunkCoord { get; set; }
     public Physiology Physiology { get; } = new();
 
     public bool IsEquippedWithSuit { get; set; }
@@ -20,10 +22,11 @@ public sealed class CrewMember
     // Movement speed: tiles per second (2.0 tiles/s default)
     public double MoveSpeed { get; set; } = 2.0;
 
-    public CrewMember(string name, GridCoord initialPosition)
+    public CrewMember(string name, GridCoord initialPosition, string role = "Generalist")
     {
         Name = name;
         Position = initialPosition;
+        Role = role;
     }
 
     public bool HasItem(ItemType type) => Inventory.Any(i => i.Type == type);
@@ -56,5 +59,26 @@ public sealed class CrewMember
         IsEquippedWithSuit = true;
         EquippedOxygenTank = tank;
         return true;
+    }
+
+    public bool Eat(Item food)
+    {
+        if (food.Type != ItemType.FoodRation) return false;
+        Physiology.ConsumeFood(food.NutritionValue > 0 ? food.NutritionValue : 40.0);
+        Inventory.Remove(food);
+        return true;
+    }
+
+    public bool Drink(Item water)
+    {
+        if (water.Type != ItemType.WaterRation) return false;
+        Physiology.ConsumeWater(water.HydrationValue > 0 ? water.HydrationValue : 50.0);
+        Inventory.Remove(water);
+        return true;
+    }
+
+    public void Rest(double dt)
+    {
+        Physiology.RecoverFatigue(15.0 * dt);
     }
 }

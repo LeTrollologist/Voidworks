@@ -56,7 +56,10 @@ public sealed class CrewAI
         // 2. Advance active movement along path
         if (_currentPath != null && _currentPath.Count > 0)
         {
-            _moveAccumulator += dt * Crew.MoveSpeed;
+            // Exhaustion penalty: if fatigue is 100%, speed is halved
+            double effectiveSpeed = Crew.Physiology.Fatigue >= 100.0 ? Crew.MoveSpeed * 0.5 : Crew.MoveSpeed;
+            _moveAccumulator += dt * effectiveSpeed;
+
             while (_moveAccumulator >= 1.0 && _currentPath.Count > 0)
             {
                 _moveAccumulator -= 1.0;
@@ -104,35 +107,76 @@ public sealed class CrewAI
 
     private void EvaluateNextTask(ShipGrid grid, JobManager jobManager)
     {
-        var mainJob = jobManager.ClaimHighestPriorityJob(Crew);
-        if (mainJob == null)
+        // First, check critical emergencies from the world board (breaches)
+        var emergencyJob = jobManager.ClaimHighestPriorityJob(Crew);
+        if (emergencyJob != null && emergencyJob.Priority >= 100)
         {
-            CurrentActivity = "Idle";
+            if (emergencyJob.Type == JobType.RepairBreach)
+            {
+                bool planSucceeded = PlanBreachRepairPrerequisites(grid, jobManager, emergencyJob);
+                if (!planSucceeded)
+                {
+                    jobManager.ReleaseJob(emergencyJob);
+                    CurrentActivity = "Unable to meet preconditions for breach repair";
+                }
+                else if (_subJobs.Count > 0)
+                {
+                    CurrentJob = _subJobs.Dequeue();
+                    return;
+                }
+            }
+            else
+            {
+                CurrentJob = emergencyJob;
+                return;
+            }
+        }
+
+        // Next, check personal biological needs (Thirst, Hunger, Fatigue)
+        if (Crew.Physiology.Thirst > 60.0)
+        {
+            var water = jobManager.FindAvailableItem(ItemType.WaterRation, Crew.Position, Crew.Id);
+            if (water != null)
+            {
+                water.ReservedByCrewId = Crew.Id;
+                _subJobs.Clear();
+                _subJobs.Enqueue(Job.CreateFetchItem(water, priority: 85));
+                _subJobs.Enqueue(Job.CreateDrinkWater(water, priority: 85));
+                CurrentJob = _subJobs.Dequeue();
+                return;
+            }
+        }
+
+        if (Crew.Physiology.Hunger > 60.0)
+        {
+            var food = jobManager.FindAvailableItem(ItemType.FoodRation, Crew.Position, Crew.Id);
+            if (food != null)
+            {
+                food.ReservedByCrewId = Crew.Id;
+                _subJobs.Clear();
+                _subJobs.Enqueue(Job.CreateFetchItem(food, priority: 80));
+                _subJobs.Enqueue(Job.CreateEatFood(food, priority: 80));
+                CurrentJob = _subJobs.Dequeue();
+                return;
+            }
+        }
+
+        if (Crew.Physiology.Fatigue > 75.0 && Crew.AssignedBunkCoord.HasValue)
+        {
+            _subJobs.Clear();
+            _subJobs.Enqueue(Job.CreateRest(Crew.AssignedBunkCoord.Value, priority: 70, restSeconds: 4.0));
+            CurrentJob = _subJobs.Dequeue();
             return;
         }
 
-        if (mainJob.Type == JobType.RepairBreach)
+        // Routine tasks
+        if (emergencyJob != null)
         {
-            // Autonomous precondition evaluation
-            bool planSucceeded = PlanBreachRepairPrerequisites(grid, jobManager, mainJob);
-            if (!planSucceeded)
-            {
-                // Preconditions cannot be met right now; release job
-                jobManager.ReleaseJob(mainJob);
-                CurrentActivity = "Unable to meet preconditions for breach repair";
-                return;
-            }
+            CurrentJob = emergencyJob;
+            return;
+        }
 
-            // Start the first planned sub-job
-            if (_subJobs.Count > 0)
-            {
-                CurrentJob = _subJobs.Dequeue();
-            }
-        }
-        else
-        {
-            CurrentJob = mainJob;
-        }
+        CurrentActivity = "Idle";
     }
 
     private bool PlanBreachRepairPrerequisites(ShipGrid grid, JobManager jobManager, Job breachJob)
@@ -140,14 +184,16 @@ public sealed class CrewAI
         _subJobs.Clear();
 
         // Precondition 1: EVA Suit & Oxygen Tank protection
-        // A breach vents into vacuum, so approaching or standing at the breach requires a suit
         if (!Crew.IsEquippedWithSuit)
         {
-            var suit = jobManager.FindAvailableItem(ItemType.EvaSuit, Crew.Position);
-            var tank = jobManager.FindAvailableItem(ItemType.OxygenTank, Crew.Position);
+            var suit = jobManager.FindAvailableItem(ItemType.EvaSuit, Crew.Position, Crew.Id);
+            var tank = jobManager.FindAvailableItem(ItemType.OxygenTank, Crew.Position, Crew.Id);
 
             if (suit == null || tank == null)
-                return false; // Cannot safely repair vacuum breach without EVA gear
+                return false;
+
+            suit.ReservedByCrewId = Crew.Id;
+            tank.ReservedByCrewId = Crew.Id;
 
             _subJobs.Enqueue(Job.CreateFetchItem(suit, priority: 110));
             _subJobs.Enqueue(Job.CreateFetchItem(tank, priority: 110));
@@ -157,20 +203,22 @@ public sealed class CrewAI
         // Precondition 2: Welding Torch
         if (!Crew.HasItem(ItemType.WeldingTorch))
         {
-            var torch = jobManager.FindAvailableItem(ItemType.WeldingTorch, Crew.Position);
+            var torch = jobManager.FindAvailableItem(ItemType.WeldingTorch, Crew.Position, Crew.Id);
             if (torch == null)
-                return false; // Cannot weld without torch
+                return false;
 
+            torch.ReservedByCrewId = Crew.Id;
             _subJobs.Enqueue(Job.CreateFetchItem(torch, priority: 105));
         }
 
         // Precondition 3: Steel Plate (patch material)
         if (!Crew.HasItem(ItemType.SteelPlate))
         {
-            var plate = jobManager.FindAvailableItem(ItemType.SteelPlate, Crew.Position);
+            var plate = jobManager.FindAvailableItem(ItemType.SteelPlate, Crew.Position, Crew.Id);
             if (plate == null)
-                return false; // Cannot patch without steel
+                return false;
 
+            plate.ReservedByCrewId = Crew.Id;
             _subJobs.Enqueue(Job.CreateFetchItem(plate, priority: 105));
         }
 
@@ -195,6 +243,18 @@ public sealed class CrewAI
                 ExecuteRepairBreach(grid, jobManager, dt);
                 break;
 
+            case JobType.EatFood:
+                ExecuteEatFood(jobManager, dt);
+                break;
+
+            case JobType.DrinkWater:
+                ExecuteDrinkWater(jobManager, dt);
+                break;
+
+            case JobType.Rest:
+                ExecuteRest(grid, jobManager, dt);
+                break;
+
             default:
                 CurrentJob = null;
                 break;
@@ -206,15 +266,14 @@ public sealed class CrewAI
         var item = CurrentJob!.TargetItem;
         if (item == null || item.IsCarried)
         {
-            // Item disappeared or was taken; cancel subjob
             CurrentJob = null;
             return;
         }
 
-        // If adjacent or on same tile, pick it up
         int dist = Math.Abs(Crew.Position.X - item.Position.X) + Math.Abs(Crew.Position.Y - item.Position.Y);
         if (dist <= 1)
         {
+            item.ReservedByCrewId = null;
             Crew.PickUp(item);
             jobManager.RemoveItem(item);
             CurrentActivity = $"Picked up {item.Name}";
@@ -222,16 +281,15 @@ public sealed class CrewAI
             return;
         }
 
-        // Pathfind to item
         var path = AStarPathfinder.FindPath(grid, Crew.Position, item.Position, Crew.IsEquippedWithSuit);
         if (path == null || path.Count <= 1)
         {
-            // Unreachable
+            item.ReservedByCrewId = null;
             CurrentJob = null;
             return;
         }
 
-        path.RemoveAt(0); // Remove current tile
+        path.RemoveAt(0);
         _currentPath = path;
         CurrentActivity = $"Navigating to {item.Name}";
     }
@@ -257,17 +315,14 @@ public sealed class CrewAI
 
         if (dist <= 1)
         {
-            // Adjacent to breach: perform welding work
             CurrentActivity = $"Welding breach at {breachCoord}...";
             CurrentJob.WorkRemainingSeconds -= dt;
 
             if (CurrentJob.WorkRemainingSeconds <= 0)
             {
-                // Patch hull!
                 var breachTile = grid[breachCoord];
                 breachTile.IsBreached = false;
 
-                // Consume 1 steel plate
                 var plate = Crew.GetItem(ItemType.SteelPlate);
                 if (plate != null)
                 {
@@ -281,19 +336,90 @@ public sealed class CrewAI
             return;
         }
 
-        // Pathfind adjacent to breach
         var path = AStarPathfinder.FindPathToAdjacent(grid, Crew.Position, breachCoord, Crew.IsEquippedWithSuit);
         if (path == null || path.Count <= 1)
         {
-            // Path blocked or dangerous
             jobManager.ReleaseJob(CurrentJob);
             CurrentJob = null;
             CurrentActivity = "Cannot reach breach";
             return;
         }
 
-        path.RemoveAt(0); // Remove current tile
+        path.RemoveAt(0);
         _currentPath = path;
         CurrentActivity = $"Moving to breach at {breachCoord}";
+    }
+
+    private void ExecuteEatFood(JobManager jobManager, double dt)
+    {
+        var food = Crew.GetItem(ItemType.FoodRation);
+        if (food == null)
+        {
+            CurrentJob = null;
+            return;
+        }
+
+        CurrentActivity = "Eating food ration...";
+        CurrentJob!.WorkRemainingSeconds -= dt;
+
+        if (CurrentJob.WorkRemainingSeconds <= 0)
+        {
+            Crew.Eat(food);
+            CurrentActivity = "Finished meal";
+            jobManager.CompleteJob(CurrentJob);
+            CurrentJob = null;
+        }
+    }
+
+    private void ExecuteDrinkWater(JobManager jobManager, double dt)
+    {
+        var water = Crew.GetItem(ItemType.WaterRation);
+        if (water == null)
+        {
+            CurrentJob = null;
+            return;
+        }
+
+        CurrentActivity = "Drinking water...";
+        CurrentJob!.WorkRemainingSeconds -= dt;
+
+        if (CurrentJob.WorkRemainingSeconds <= 0)
+        {
+            Crew.Drink(water);
+            CurrentActivity = "Hydrated";
+            jobManager.CompleteJob(CurrentJob);
+            CurrentJob = null;
+        }
+    }
+
+    private void ExecuteRest(ShipGrid grid, JobManager jobManager, double dt)
+    {
+        var bunkCoord = CurrentJob!.TargetCoord;
+        if (Crew.Position == bunkCoord)
+        {
+            CurrentActivity = "Sleeping / Resting in bunk...";
+            Crew.Rest(dt);
+            CurrentJob.WorkRemainingSeconds -= dt;
+
+            if (CurrentJob.WorkRemainingSeconds <= 0 || Crew.Physiology.Fatigue <= 5.0)
+            {
+                CurrentActivity = "Rested and refreshed";
+                jobManager.CompleteJob(CurrentJob);
+                CurrentJob = null;
+            }
+            return;
+        }
+
+        var path = AStarPathfinder.FindPath(grid, Crew.Position, bunkCoord, Crew.IsEquippedWithSuit);
+        if (path == null || path.Count <= 1)
+        {
+            CurrentJob = null;
+            CurrentActivity = "Bunk unreachable";
+            return;
+        }
+
+        path.RemoveAt(0);
+        _currentPath = path;
+        CurrentActivity = $"Heading to bunk at {bunkCoord}";
     }
 }

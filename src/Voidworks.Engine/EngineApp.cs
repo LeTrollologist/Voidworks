@@ -5,6 +5,7 @@ using Brutal.GlfwApi;
 using Brutal.ImGuiApi;
 using Brutal.ImGuiApi.Backends;
 using Brutal.Numerics;
+using Voidworks.Sim;
 using Voidworks.Sim.Crew;
 using Voidworks.Sim.Machinery;
 using Voidworks.Sim.Ship;
@@ -165,19 +166,16 @@ public sealed class EngineApp
 
             // Render 2D Viewport into ImGui background
             var drawList = ImGui.GetBackgroundDrawList();
-            drawList.AddRectFilled(float2.Zero, viewportSize, ViewportRenderer.ColorSpace);
+            drawList.AddRectFilled(float2.Zero, viewportSize, _renderer.ColorSpace);
 
             _renderer.Render(
                 drawList,
                 sim,
                 _camera,
-                float2.Zero,
-                viewportSize,
-                _overlayMode,
+                viewportCenter,
                 hoveredCoord,
                 _selectedTile,
-                _selectedCrew,
-                _selectedMachine);
+                _overlayMode);
 
             // Render interactive UI panels
             _ui.Render(sim, ref _overlayMode, ref _selectedTile, ref _selectedCrew, ref _selectedMachine);

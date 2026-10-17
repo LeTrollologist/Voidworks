@@ -12,6 +12,7 @@ public sealed class Physiology
     public double Health { get; set; } = 100.0;
     public double OxygenSaturation { get; set; } = 100.0; // 0 - 100%
     public double Hunger { get; set; } = 0.0;             // 0 (full) - 100 (starving)
+    public double Thirst { get; set; } = 0.0;             // 0 (hydrated) - 100 (parched)
     public double Fatigue { get; set; } = 0.0;            // 0 (rested) - 100 (exhausted)
 
     public bool IsAlive => Health > 0.0;
@@ -67,8 +68,34 @@ public sealed class Physiology
             Health = Math.Max(0.0, Health - (15.0 * dt));
         }
 
-        // 4. Gradual hunger and fatigue
-        Hunger = Math.Min(100.0, Hunger + (0.01 * dt));
-        Fatigue = Math.Min(100.0, Fatigue + (0.02 * dt));
+        // 4. Gradual hunger, thirst, and fatigue
+        Hunger = Math.Min(100.0, Hunger + (0.02 * dt));
+        Thirst = Math.Min(100.0, Thirst + (0.04 * dt));
+        Fatigue = Math.Min(100.0, Fatigue + (0.03 * dt));
+
+        // Damage from extreme starvation or dehydration
+        if (Hunger >= 100.0)
+        {
+            Health = Math.Max(0.0, Health - (1.0 * dt));
+        }
+        if (Thirst >= 100.0)
+        {
+            Health = Math.Max(0.0, Health - (2.0 * dt));
+        }
+    }
+
+    public void ConsumeFood(double nutrition)
+    {
+        Hunger = Math.Max(0.0, Hunger - nutrition);
+    }
+
+    public void ConsumeWater(double hydration)
+    {
+        Thirst = Math.Max(0.0, Thirst - hydration);
+    }
+
+    public void RecoverFatigue(double amount)
+    {
+        Fatigue = Math.Max(0.0, Fatigue - amount);
     }
 }

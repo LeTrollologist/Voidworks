@@ -42,8 +42,8 @@ public static class AStarPathfinder
 
                 var tile = grid[neighbor];
 
-                // Impassable wall check (unless goal)
-                if (tile.Type == TileType.HullWall || tile.Type == TileType.InteriorWall)
+                // Impassable wall / obstacle check (unless goal)
+                if (tile.Type == TileType.HullWall || tile.Type == TileType.InteriorWall || tile.Type == TileType.Asteroid)
                 {
                     if (neighbor != goal) continue;
                 }
@@ -90,7 +90,7 @@ public static class AStarPathfinder
             .Where(c =>
             {
                 var t = grid[c];
-                if (t.Type == TileType.HullWall || t.Type == TileType.InteriorWall) return false;
+                if (t.Type == TileType.HullWall || t.Type == TileType.InteriorWall || t.Type == TileType.Asteroid) return false;
                 if (t.IsVacuumSink && !canTraverseVacuum) return false;
                 if (t.Type == TileType.Door && t.DoorState == DoorState.Locked) return false;
                 return true;

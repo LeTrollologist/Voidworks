@@ -5,5 +5,11 @@ public enum MachineType
     Reactor,
     Battery,
     OxygenGenerator,
-    CarbonScrubber
+    CarbonScrubber,
+    MiningLaser,
+    SmelterRefinery,
+    HydroponicsBay,
+    FuelTank,
+    MainEngine,
+    Radiator
 }

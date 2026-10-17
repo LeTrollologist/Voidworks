@@ -40,4 +40,36 @@ public sealed class Job
             DesiredItemType = item.Type
         };
     }
+
+    public static Job CreateEatFood(Item foodItem, int priority = 80)
+    {
+        return new Job(JobType.EatFood, foodItem.Position, priority: priority, workSeconds: 1.0, $"Eat {foodItem.Name}")
+        {
+            TargetItem = foodItem,
+            DesiredItemType = ItemType.FoodRation
+        };
+    }
+
+    public static Job CreateDrinkWater(Item waterItem, int priority = 85)
+    {
+        return new Job(JobType.DrinkWater, waterItem.Position, priority: priority, workSeconds: 0.5, $"Drink {waterItem.Name}")
+        {
+            TargetItem = waterItem,
+            DesiredItemType = ItemType.WaterRation
+        };
+    }
+
+    public static Job CreateRest(GridCoord bunkCoord, int priority = 75, double restSeconds = 5.0)
+    {
+        return new Job(JobType.Rest, bunkCoord, priority: priority, workSeconds: restSeconds, $"Rest in Bunk at {bunkCoord}");
+    }
+
+    public static Job CreateRefineOre(GridCoord smelterCoord, Item ironOre, int priority = 40)
+    {
+        return new Job(JobType.RefineOre, smelterCoord, priority: priority, workSeconds: 2.0, "Deliver Ore to Smelter")
+        {
+            TargetItem = ironOre,
+            DesiredItemType = ItemType.IronOre
+        };
+    }
 }

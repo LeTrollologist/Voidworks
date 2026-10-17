@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using Brutal.ImGuiApi;
 using Brutal.Numerics;
+using Voidworks.Sim;
 using Voidworks.Sim.Crew;
 using Voidworks.Sim.Items;
 using Voidworks.Sim.Machinery;
@@ -11,48 +12,50 @@ namespace Voidworks.Engine;
 
 public sealed class ViewportRenderer
 {
-    public const uint ColorSpace = 0xFF140F0A;
-    public const uint ColorHullWall = 0xFF4A3B32;
-    public const uint ColorFloor = 0xFF2D241C;
-    public const uint ColorDoorClosed = 0xFF22258A;
-    public const uint ColorDoorOpen = 0xFF358C28;
-    public const uint ColorBreach = 0xFF1E24E6;
-    public const uint ColorGridLine = 0xFF3D3227;
+    public uint ColorSpace = 0xFF0D0B0A;      // Deep void black/blue
+    public uint ColorHull = 0xFF4A4540;       // Reinforced armor plate
+    public uint ColorInterior = 0xFF655F58;   // Bulkhead partition
+    public uint ColorFloor = 0xFF2B2622;      // Steel deck
+    public uint ColorAsteroid = 0xFF35302B;   // Mineral-rich carbonaceous asteroid
+    public uint ColorDoorClosed = 0xFF8A3025; // Sealed airlock red
+    public uint ColorDoorOpen = 0xFF2A7A38;   // Open door green
+    public uint ColorGridLine = 0x22FFFFFF;   // Subtle tile grid
+    public uint ColorHover = 0x44FFFFFF;      // Hover highlight
 
     public void Render(
         ImDrawListPtr drawList,
         SimulationState sim,
         Camera2D camera,
-        float2 viewportPos,
-        float2 viewportSize,
-        OverlayMode overlayMode,
+        float2 viewportCenter,
         GridCoord? hoveredTile,
         GridCoord? selectedTile,
-        CrewMember? selectedCrew,
-        Machine? selectedMachine)
+        OverlayMode overlayMode)
     {
         var grid = sim.Grid;
-        var viewportCenter = viewportPos + (viewportSize * 0.5f);
 
-        // 1. Draw tiles
+        // 1. Draw ship tiles
         for (int y = 0; y < grid.Height; y++)
         {
             for (int x = 0; x < grid.Width; x++)
             {
-                var coord = new GridCoord(x, y);
-                var tile = grid[coord];
-
+                var tile = grid[x, y];
                 var pMin = camera.WorldToScreen(new float2(x, y), viewportCenter);
                 var pMax = pMin + new float2(camera.Zoom, camera.Zoom);
 
-                if (pMax.X < viewportPos.X || pMin.X > viewportPos.X + viewportSize.X ||
-                    pMax.Y < viewportPos.Y || pMin.Y > viewportPos.Y + viewportSize.Y)
+                if (pMax.X < 0 || pMax.Y < 0 || pMin.X > ImGui.GetIO().DisplaySize.X || pMin.Y > ImGui.GetIO().DisplaySize.Y)
                 {
                     continue;
                 }
 
                 uint tileColor = GetTileColor(tile, overlayMode);
                 drawList.AddRectFilled(pMin, pMax, tileColor);
+
+                if (tile.Type == TileType.Asteroid && camera.Zoom >= 24f)
+                {
+                    // Mineral glints
+                    var glintPos = pMin + new float2(camera.Zoom * 0.3f, camera.Zoom * 0.3f);
+                    drawList.AddCircleFilled(glintPos, Math.Max(1.5f, camera.Zoom * 0.08f), 0xFF80A0B0);
+                }
 
                 if (tile.Type != TileType.Space && camera.Zoom > 20f)
                 {
@@ -85,36 +88,79 @@ public sealed class ViewportRenderer
             var pMin = camera.WorldToScreen(new float2(cable.X, cable.Y), viewportCenter);
             var center = pMin + new float2(camera.Zoom * 0.5f, camera.Zoom * 0.5f);
 
-            uint cableCol = overlayMode == OverlayMode.Power ? 0xFF20D0F0 : 0xFF506070; // Bright yellow in power mode
-            float cableRadius = Math.Max(2f, camera.Zoom * 0.1f);
+            uint cableCol = overlayMode == OverlayMode.Power ? 0xFF20D0F0 : 0xFF506070;
+            float cableRadius = Math.Max(2f, camera.Zoom * 0.09f);
             drawList.AddCircleFilled(center, cableRadius, cableCol);
 
-            // Connect to cardinal neighbors with cables
             foreach (var neighbor in cable.Cardinals())
             {
                 if (sim.Cables.Contains(neighbor) && (neighbor.X > cable.X || neighbor.Y > cable.Y))
                 {
                     var nMin = camera.WorldToScreen(new float2(neighbor.X, neighbor.Y), viewportCenter);
                     var nCenter = nMin + new float2(camera.Zoom * 0.5f, camera.Zoom * 0.5f);
-                    drawList.AddLine(center, nCenter, cableCol, Math.Max(2f, camera.Zoom * 0.08f));
+                    drawList.AddLine(center, nCenter, cableCol, Math.Max(2f, camera.Zoom * 0.07f));
                 }
             }
         }
 
-        // 3. Draw machines
+        // 3. Draw plumbing pipes (Coolant & Propellant)
+        foreach (var pipe in sim.PlumbingSolver.CoolantPipes)
+        {
+            var pMin = camera.WorldToScreen(new float2(pipe.X, pipe.Y), viewportCenter);
+            var center = pMin + new float2(camera.Zoom * 0.5f, camera.Zoom * 0.5f);
+
+            uint pipeCol = overlayMode == OverlayMode.Plumbing ? 0xFFFFA020 : 0xFF805010; // Azure coolant
+            drawList.AddCircleFilled(center, Math.Max(2f, camera.Zoom * 0.1f), pipeCol);
+
+            foreach (var neighbor in pipe.Cardinals())
+            {
+                if (sim.PlumbingSolver.CoolantPipes.Contains(neighbor) && (neighbor.X > pipe.X || neighbor.Y > pipe.Y))
+                {
+                    var nMin = camera.WorldToScreen(new float2(neighbor.X, neighbor.Y), viewportCenter);
+                    var nCenter = nMin + new float2(camera.Zoom * 0.5f, camera.Zoom * 0.5f);
+                    drawList.AddLine(center, nCenter, pipeCol, Math.Max(2.5f, camera.Zoom * 0.09f));
+                }
+            }
+        }
+
+        foreach (var pipe in sim.PlumbingSolver.PropellantPipes)
+        {
+            var pMin = camera.WorldToScreen(new float2(pipe.X, pipe.Y), viewportCenter);
+            var center = pMin + new float2(camera.Zoom * 0.5f, camera.Zoom * 0.5f);
+
+            uint pipeCol = overlayMode == OverlayMode.Plumbing ? 0xFF2080FF : 0xFF204080; // Orange fuel line
+            drawList.AddCircleFilled(center, Math.Max(2f, camera.Zoom * 0.1f), pipeCol);
+
+            foreach (var neighbor in pipe.Cardinals())
+            {
+                if (sim.PlumbingSolver.PropellantPipes.Contains(neighbor) && (neighbor.X > pipe.X || neighbor.Y > pipe.Y))
+                {
+                    var nMin = camera.WorldToScreen(new float2(neighbor.X, neighbor.Y), viewportCenter);
+                    var nCenter = nMin + new float2(camera.Zoom * 0.5f, camera.Zoom * 0.5f);
+                    drawList.AddLine(center, nCenter, pipeCol, Math.Max(2.5f, camera.Zoom * 0.09f));
+                }
+            }
+        }
+
+        // 4. Draw machines
         foreach (var machine in sim.Machines)
         {
             var pMin = camera.WorldToScreen(new float2(machine.Position.X, machine.Position.Y), viewportCenter);
             var pMax = pMin + new float2(camera.Zoom, camera.Zoom);
             var center = pMin + new float2(camera.Zoom * 0.5f, camera.Zoom * 0.5f);
 
-            // Machine housing
             uint housingCol = machine.Type switch
             {
-                MachineType.Reactor => 0xFF2050A0,      // Nuclear orange/rust
-                MachineType.Battery => 0xFF805020,      // Capacitor blue
-                MachineType.OxygenGenerator => 0xFF807020, // Cyan generator
-                MachineType.CarbonScrubber => 0xFF306030,  // Green scrubber
+                MachineType.Reactor => 0xFF2050A0,         // Nuclear orange/rust
+                MachineType.Battery => 0xFF805020,         // Capacitor blue
+                MachineType.OxygenGenerator => 0xFF807020,    // Cyan generator
+                MachineType.CarbonScrubber => 0xFF306030,     // Green scrubber
+                MachineType.MiningLaser => 0xFF602070,        // Violet laser housing
+                MachineType.SmelterRefinery => 0xFF103870,    // Foundry furnace
+                MachineType.HydroponicsBay => 0xFF208030,     // Hydroponic greenery
+                MachineType.FuelTank => 0xFF306060,           // Fuel canister teal
+                MachineType.MainEngine => 0xFF404050,         // Thruster nozzle
+                MachineType.Radiator => 0xFF706050,           // Radiator cooling fin
                 _ => 0xFF505050
             };
 
@@ -122,13 +168,13 @@ public sealed class ViewportRenderer
             var insetMax = pMax - new float2(camera.Zoom * 0.1f, camera.Zoom * 0.1f);
             drawList.AddRectFilled(insetMin, insetMax, housingCol, 4f);
 
-            // Status light (Green = powered, Red = unpowered)
+            // Status light
             uint statusLedCol = machine.IsPowered ? 0xFF00FF40 : 0xFF2020FF;
             var ledPos = pMin + new float2(camera.Zoom * 0.2f, camera.Zoom * 0.2f);
             drawList.AddCircleFilled(ledPos, Math.Max(2f, camera.Zoom * 0.08f), statusLedCol);
 
             // Label
-            if (camera.Zoom >= 32f)
+            if (camera.Zoom >= 30f)
             {
                 string tag = machine.Type switch
                 {
@@ -136,11 +182,16 @@ public sealed class ViewportRenderer
                     MachineType.Battery => "BAT",
                     MachineType.OxygenGenerator => "O2G",
                     MachineType.CarbonScrubber => "SCB",
+                    MachineType.MiningLaser => "LAS",
+                    MachineType.SmelterRefinery => "SML",
+                    MachineType.HydroponicsBay => "HYD",
+                    MachineType.FuelTank => "TNK",
+                    MachineType.MainEngine => "ENG",
+                    MachineType.Radiator => "RAD",
                     _ => "MAC"
                 };
-                drawList.AddText(pMin + new float2(camera.Zoom * 0.3f, camera.Zoom * 0.35f), 0xFFFFFFFF, tag);
+                drawList.AddText(pMin + new float2(camera.Zoom * 0.28f, camera.Zoom * 0.35f), 0xFFFFFFFF, tag);
 
-                // If battery, draw mini charge bar
                 if (machine.Type == MachineType.Battery && machine.BatteryCapacityKWh > 0)
                 {
                     float pct = (float)(machine.BatteryStoredKWh / machine.BatteryCapacityKWh);
@@ -149,9 +200,18 @@ public sealed class ViewportRenderer
                     drawList.AddRectFilled(barMin, barMax, 0xFF00E080);
                 }
             }
+
+            // Mining Laser Beam effect
+            if (machine.Type == MachineType.MiningLaser && machine.IsPowered && machine.IsOnline && machine.TargetAsteroidCoord.HasValue)
+            {
+                var targetPMin = camera.WorldToScreen(new float2(machine.TargetAsteroidCoord.Value.X, machine.TargetAsteroidCoord.Value.Y), viewportCenter);
+                var targetCenter = targetPMin + new float2(camera.Zoom * 0.5f, camera.Zoom * 0.5f);
+                drawList.AddLine(center, targetCenter, 0xFF5020FF, Math.Max(2f, camera.Zoom * 0.1f));
+                drawList.AddCircleFilled(targetCenter, Math.Max(3f, camera.Zoom * 0.15f), 0xFF8040FF);
+            }
         }
 
-        // 4. Draw physical items
+        // 5. Draw physical items
         foreach (var item in sim.JobManager.WorldItems.Where(i => !i.IsCarried))
         {
             var pMin = camera.WorldToScreen(new float2(item.Position.X, item.Position.Y), viewportCenter);
@@ -164,6 +224,11 @@ public sealed class ViewportRenderer
                 ItemType.OxygenTank => (0xFFE08020, "O2"),
                 ItemType.WeldingTorch => (0xFF2080E0, "WLD"),
                 ItemType.SteelPlate => (0xFF909090, "STL"),
+                ItemType.IronOre => (0xFF606070, "ORE"),
+                ItemType.IceOre => (0xFFE0E080, "ICE"),
+                ItemType.WaterRation => (0xFFE0A030, "H2O"),
+                ItemType.FoodRation => (0xFF30C070, "NUT"),
+                ItemType.FuelCanister => (0xFF2070E0, "FUL"),
                 _ => (0xFFFFFFFF, "?")
             };
 
@@ -174,7 +239,7 @@ public sealed class ViewportRenderer
             }
         }
 
-        // 5. Draw crew members
+        // 6. Draw crew members
         foreach (var crewAI in sim.Crew)
         {
             var crew = crewAI.Crew;
@@ -195,7 +260,8 @@ public sealed class ViewportRenderer
 
             if (camera.Zoom >= 30f)
             {
-                drawList.AddText(center - new float2(camera.Zoom * 0.5f, radius + 14f), 0xFFFFFFFF, crew.Name);
+                string tag = $"{crew.Name} ({crew.Role})";
+                drawList.AddText(center - new float2(camera.Zoom * 0.6f, radius + 14f), 0xFFFFFFFF, tag);
                 if (!string.IsNullOrEmpty(crewAI.CurrentActivity) && camera.Zoom >= 42f)
                 {
                     drawList.AddText(center + new float2(-camera.Zoom * 0.5f, radius + 2f), 0xFF80E0FF, crewAI.CurrentActivity);
@@ -203,12 +269,12 @@ public sealed class ViewportRenderer
             }
         }
 
-        // 6. Hover & Selection outlines
+        // 7. Hover & Selection outlines
         if (hoveredTile.HasValue && grid.IsInBounds(hoveredTile.Value))
         {
             var hMin = camera.WorldToScreen(new float2(hoveredTile.Value.X, hoveredTile.Value.Y), viewportCenter);
             var hMax = hMin + new float2(camera.Zoom, camera.Zoom);
-            drawList.AddRect(hMin, hMax, 0x80FFFFFF, 0f, 0, 1.5f);
+            drawList.AddRect(hMin, hMax, ColorHover, 2f, 0, 1.5f);
         }
 
         if (selectedTile.HasValue && grid.IsInBounds(selectedTile.Value))
@@ -221,14 +287,10 @@ public sealed class ViewportRenderer
 
     private uint GetTileColor(ShipTile tile, OverlayMode mode)
     {
-        if (tile.IsBreached)
-            return ColorBreach;
-
-        if (tile.Type == TileType.Space)
-            return ColorSpace;
-
-        if (tile.Type == TileType.HullWall || tile.Type == TileType.InteriorWall)
-            return ColorHullWall;
+        if (tile.Type == TileType.Space) return ColorSpace;
+        if (tile.Type == TileType.HullWall) return ColorHull;
+        if (tile.Type == TileType.InteriorWall) return ColorInterior;
+        if (tile.Type == TileType.Asteroid) return ColorAsteroid;
 
         if (tile.Type == TileType.Door)
             return tile.DoorState == DoorState.Open ? ColorDoorOpen : ColorDoorClosed;
@@ -239,7 +301,8 @@ public sealed class ViewportRenderer
             OverlayMode.Pressure => GetPressureColor(tile.Atmosphere.PressureKPa),
             OverlayMode.Oxygen => GetOxygenColor(tile.Atmosphere.OxygenPercentage),
             OverlayMode.Hazards => GetHazardColor(tile),
-            OverlayMode.Power => 0xFF252018, // Dim background in power overlay to highlight conduits
+            OverlayMode.Power => 0xFF252018,
+            OverlayMode.Plumbing => 0xFF182025,
             _ => ColorFloor
         };
     }

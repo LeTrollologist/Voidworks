@@ -35,10 +35,10 @@ public sealed class JobManager
         _jobs.Remove(job);
     }
 
-    public Item? FindAvailableItem(ItemType type, GridCoord nearCoord)
+    public Item? FindAvailableItem(ItemType type, GridCoord nearCoord, Guid? requestingCrewId = null)
     {
         return _worldItems
-            .Where(i => i.Type == type && !i.IsCarried)
+            .Where(i => i.Type == type && (i.IsAvailable || (requestingCrewId.HasValue && i.ReservedByCrewId == requestingCrewId.Value)))
             .OrderBy(i => Math.Abs(i.Position.X - nearCoord.X) + Math.Abs(i.Position.Y - nearCoord.Y))
             .FirstOrDefault();
     }

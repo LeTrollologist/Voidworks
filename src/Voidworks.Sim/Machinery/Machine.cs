@@ -21,9 +21,43 @@ public sealed class Machine
     public double BatteryCapacityKWh { get; set; }
     public double BatteryStoredKWh { get; set; }
 
-    // Active production/consumption rates (moles/second)
+    // Life support rates (moles/second)
     public double O2GenerationRatePerSecond { get; set; } = 0.5;   // ~0.5 mol/s for oxygen generator
     public double CO2ScrubbingRatePerSecond { get; set; } = 0.25;  // ~0.25 mol/s for scrubber
+
+    // Thermal / Reactor & Radiator properties
+    public double CoreTemperatureKelvin { get; set; } = 350.0;
+    public double HeatGenerationKW { get; set; } = 12.0;
+    public double HeatCapacityJoulesPerKelvin { get; set; } = 100_000.0;
+    public double MaxSafeTemperatureKelvin { get; set; } = 1000.0;
+    public double ScramTemperatureKelvin { get; set; } = 1200.0;
+    public bool IsScrammed { get; set; } = false;
+    public double RadiatorCoolingKW { get; set; } = 15.0;
+
+    // Mining Laser
+    public GridCoord? TargetAsteroidCoord { get; set; }
+    public double MiningProgressSeconds { get; set; } = 0.0;
+    public double MiningCycleSeconds { get; set; } = 3.0;
+    public int TotalOreExtracted { get; set; } = 0;
+
+    // Smelter Refinery
+    public int IronOreStored { get; set; } = 0;
+    public int SteelPlatesProduced { get; set; } = 0;
+    public double SmeltProgressSeconds { get; set; } = 0.0;
+    public double SmeltCycleSeconds { get; set; } = 4.0;
+
+    // Hydroponics Bay
+    public double WaterStoredLiters { get; set; } = 10.0;
+    public int FoodRationsProduced { get; set; } = 0;
+    public double GrowthProgressSeconds { get; set; } = 0.0;
+    public double GrowthCycleSeconds { get; set; } = 10.0;
+
+    // Propulsion & Fuel Tank
+    public double FuelStoredKg { get; set; } = 0.0;
+    public double FuelCapacityKg { get; set; } = 0.0;
+    public bool IsFiring { get; set; } = false;
+    public double ThrustKN { get; set; } = 50.0;
+    public double FuelBurnRateKgPerSecond { get; set; } = 2.5;
 
     public Machine(MachineType type, GridCoord position, string? name = null)
     {
@@ -34,52 +68,169 @@ public sealed class Machine
         switch (type)
         {
             case MachineType.Reactor:
-                PowerProductionKW = 25.0; // 25 kW nuclear reactor
+                PowerProductionKW = 25.0;
                 PowerConsumptionKW = 0.0;
+                CoreTemperatureKelvin = 350.0;
+                HeatGenerationKW = 12.0;
                 break;
 
             case MachineType.Battery:
                 PowerProductionKW = 0.0;
                 PowerConsumptionKW = 0.0;
-                BatteryCapacityKWh = 100.0; // 100 kWh capacitor bank
-                BatteryStoredKWh = 75.0;    // starts 75% charged
+                BatteryCapacityKWh = 100.0;
+                BatteryStoredKWh = 75.0;
                 break;
 
             case MachineType.OxygenGenerator:
                 PowerProductionKW = 0.0;
-                PowerConsumptionKW = 3.5;   // consumes 3.5 kW
+                PowerConsumptionKW = 3.5;
                 break;
 
             case MachineType.CarbonScrubber:
                 PowerProductionKW = 0.0;
-                PowerConsumptionKW = 2.0;   // consumes 2.0 kW
+                PowerConsumptionKW = 2.0;
+                break;
+
+            case MachineType.MiningLaser:
+                PowerProductionKW = 0.0;
+                PowerConsumptionKW = 5.0;
+                break;
+
+            case MachineType.SmelterRefinery:
+                PowerProductionKW = 0.0;
+                PowerConsumptionKW = 6.0;
+                break;
+
+            case MachineType.HydroponicsBay:
+                PowerProductionKW = 0.0;
+                PowerConsumptionKW = 2.0;
+                WaterStoredLiters = 15.0;
+                break;
+
+            case MachineType.Radiator:
+                PowerProductionKW = 0.0;
+                PowerConsumptionKW = 0.5; // pump power
+                RadiatorCoolingKW = 15.0;
+                break;
+
+            case MachineType.FuelTank:
+                PowerProductionKW = 0.0;
+                PowerConsumptionKW = 0.0;
+                FuelCapacityKg = 500.0;
+                FuelStoredKg = 400.0;
+                break;
+
+            case MachineType.MainEngine:
+                PowerProductionKW = 0.0;
+                PowerConsumptionKW = 1.0; // gimbal & igniter
+                ThrustKN = 50.0;
+                FuelBurnRateKgPerSecond = 2.5;
                 break;
         }
     }
 
     public void Tick(ShipTile tile, double dt)
     {
-        if (!IsOnline || !IsPowered || dt <= 0) return;
+        if (dt <= 0) return;
+
+        // If machine is reactor, track thermal physics even if not actively powered by external grid
+        if (Type == MachineType.Reactor)
+        {
+            TickReactorThermal(dt);
+        }
+
+        if (!IsOnline || !IsPowered) return;
 
         switch (Type)
         {
             case MachineType.OxygenGenerator:
-                // Produces oxygen into local room atmosphere
                 if (!tile.IsVacuumSink)
                 {
-                    double o2Produced = O2GenerationRatePerSecond * dt;
-                    tile.Atmosphere.Oxygen += o2Produced;
+                    tile.Atmosphere.Oxygen += O2GenerationRatePerSecond * dt;
                 }
                 break;
 
             case MachineType.CarbonScrubber:
-                // Scrubs CO2 from local room atmosphere
                 if (!tile.IsVacuumSink && tile.Atmosphere.CarbonDioxide > 0)
                 {
                     double co2ToScrub = Math.Min(tile.Atmosphere.CarbonDioxide, CO2ScrubbingRatePerSecond * dt);
                     tile.Atmosphere.CarbonDioxide -= co2ToScrub;
                 }
                 break;
+
+            case MachineType.SmelterRefinery:
+                TickSmelter(dt);
+                break;
+
+            case MachineType.HydroponicsBay:
+                TickHydroponics(tile, dt);
+                break;
+        }
+    }
+
+    private void TickReactorThermal(double dt)
+    {
+        if (IsOnline)
+        {
+            // Generating heat (P = HeatGenerationKW * 1000 W)
+            double heatJoules = HeatGenerationKW * 1000.0 * dt;
+            CoreTemperatureKelvin += heatJoules / HeatCapacityJoulesPerKelvin;
+
+            // Meltdown / emergency SCRAM protection
+            if (CoreTemperatureKelvin >= ScramTemperatureKelvin)
+            {
+                IsScrammed = true;
+                IsOnline = false; // Emergency trip!
+            }
+        }
+        else
+        {
+            // Passive radiation cooling down towards ambient ~293 K
+            double ambient = 293.15;
+            if (CoreTemperatureKelvin > ambient)
+            {
+                double coolRate = 0.5 * (CoreTemperatureKelvin - ambient) * dt;
+                CoreTemperatureKelvin = Math.Max(ambient, CoreTemperatureKelvin - (coolRate / HeatCapacityJoulesPerKelvin));
+            }
+        }
+    }
+
+    private void TickSmelter(double dt)
+    {
+        if (IronOreStored > 0)
+        {
+            SmeltProgressSeconds += dt;
+            if (SmeltProgressSeconds >= SmeltCycleSeconds)
+            {
+                SmeltProgressSeconds = 0.0;
+                IronOreStored--;
+                SteelPlatesProduced++;
+            }
+        }
+    }
+
+    private void TickHydroponics(ShipTile tile, double dt)
+    {
+        if (WaterStoredLiters > 0.05)
+        {
+            // Consume water slowly
+            WaterStoredLiters -= 0.02 * dt;
+
+            // Photosynthesis: convert CO2 to O2
+            if (!tile.IsVacuumSink && tile.Atmosphere.CarbonDioxide > 0.01)
+            {
+                double co2Consumed = Math.Min(tile.Atmosphere.CarbonDioxide, 0.05 * dt);
+                tile.Atmosphere.CarbonDioxide -= co2Consumed;
+                tile.Atmosphere.Oxygen += co2Consumed;
+            }
+
+            // Food production
+            GrowthProgressSeconds += dt;
+            if (GrowthProgressSeconds >= GrowthCycleSeconds)
+            {
+                GrowthProgressSeconds = 0.0;
+                FoodRationsProduced++;
+            }
         }
     }
 }

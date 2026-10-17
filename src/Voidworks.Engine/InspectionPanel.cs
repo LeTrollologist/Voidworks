@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using Brutal.ImGuiApi;
 using Brutal.Numerics;
+using Voidworks.Sim;
 using Voidworks.Sim.Crew;
 using Voidworks.Sim.Items;
 using Voidworks.Sim.Machinery;
@@ -38,7 +39,7 @@ public sealed class InspectionPanel
 
             ImGui.TextColored(new float4(0.2f, 0.8f, 1.0f, 1.0f), "VOIDWORKS");
             ImGui.SameLine();
-            ImGui.TextDisabled($"|  ENGINEERING  ·  {timeStr}  ·  {statusStr}");
+            ImGui.TextDisabled($"|  OPERATIONS  ·  {timeStr}  ·  {statusStr}");
 
             ImGui.Separator();
 
@@ -48,35 +49,42 @@ public sealed class InspectionPanel
             ImGui.TextColored(new float4(0.9f, 0.9f, 0.9f, 1.0f), "PRESSURE: ");
             ImGui.SameLine();
             ImGui.TextColored(bridgePressure > 70 ? new float4(0.2f, 1.0f, 0.4f, 1.0f) : new float4(1.0f, 0.3f, 0.2f, 1.0f), $"{bridgePressure:F1} kPa");
-            ImGui.SameLine();
-            ImGui.TextDisabled("· Bridge");
 
             // 2. Oxygen
             double bridgeO2 = sim.Grid.IsInBounds(3, 3) ? sim.Grid[3, 3].Atmosphere.OxygenPercentage : 0.0;
-            ImGui.SameLine(250f);
+            ImGui.SameLine(220f);
             ImGui.TextColored(new float4(0.9f, 0.9f, 0.9f, 1.0f), "OXYGEN: ");
             ImGui.SameLine();
             ImGui.TextColored(bridgeO2 > 18 ? new float4(0.2f, 1.0f, 0.4f, 1.0f) : new float4(1.0f, 0.3f, 0.2f, 1.0f), $"{bridgeO2:F1}%");
 
             // 3. Power
-            ImGui.SameLine(460f);
+            ImGui.SameLine(410f);
             ImGui.TextColored(new float4(0.9f, 0.9f, 0.9f, 1.0f), "POWER: ");
             ImGui.SameLine();
-            ImGui.TextColored(new float4(1.0f, 0.85f, 0.2f, 1.0f), $"{sim.PowerGridSolver.TotalGenerationKW:F1} / {sim.PowerGridSolver.TotalDemandKW:F1} kW");
+            ImGui.TextColored(new float4(1.0f, 0.85f, 0.2f, 1.0f), $"{sim.PowerGridSolver.TotalGenerationKW:F0} / {sim.PowerGridSolver.TotalDemandKW:F1} kW");
 
             // 4. Battery
-            ImGui.SameLine(720f);
+            ImGui.SameLine(650f);
             ImGui.TextColored(new float4(0.9f, 0.9f, 0.9f, 1.0f), "BATTERY: ");
             ImGui.SameLine();
-            ImGui.TextColored(new float4(0.2f, 0.85f, 1.0f, 1.0f), $"{sim.PowerGridSolver.BatteryPercentage:F0}% ({sim.PowerGridSolver.TotalBatteryStoredKWh:F1} kWh)");
+            ImGui.TextColored(new float4(0.2f, 0.85f, 1.0f, 1.0f), $"{sim.PowerGridSolver.BatteryPercentage:F0}%");
 
-            // 5. Hull
+            // 5. Reactor Temp
+            var reactor = sim.Machines.FirstOrDefault(m => m.Type == MachineType.Reactor);
+            double reactorTemp = reactor != null ? reactor.CoreTemperatureKelvin : 293.15;
+            ImGui.SameLine(820f);
+            ImGui.TextColored(new float4(0.9f, 0.9f, 0.9f, 1.0f), "REACTOR: ");
+            ImGui.SameLine();
+            var rTempCol = reactorTemp < 800.0 ? new float4(0.2f, 1.0f, 0.4f, 1.0f) : new float4(1.0f, 0.2f, 0.2f, 1.0f);
+            ImGui.TextColored(rTempCol, $"{reactorTemp:F0} K ({reactorTemp - 273.15:F0} °C)");
+
+            // 6. Hull Breaches
             int activeBreaches = sim.Grid.AllTiles().Count(t => t.IsBreached);
-            ImGui.SameLine(1000f);
+            ImGui.SameLine(1050f);
             ImGui.TextColored(new float4(0.9f, 0.9f, 0.9f, 1.0f), "HULL: ");
             ImGui.SameLine();
             if (activeBreaches > 0)
-                ImGui.TextColored(new float4(1.0f, 0.2f, 0.2f, 1.0f), $"{activeBreaches} ACTIVE BREACH");
+                ImGui.TextColored(new float4(1.0f, 0.2f, 0.2f, 1.0f), $"{activeBreaches} BREACH");
             else
                 ImGui.TextColored(new float4(0.2f, 1.0f, 0.4f, 1.0f), "INTACT");
         }
@@ -111,7 +119,7 @@ public sealed class InspectionPanel
             ImGui.SameLine();
             if (ImGui.Button(" 10x ")) sim.TimeScale = 10.0;
 
-            ImGui.SameLine(420f);
+            ImGui.SameLine(380f);
             ImGui.TextDisabled("| Overlays:");
             ImGui.SameLine();
             if (ImGui.RadioButton("Ship View", overlayMode == OverlayMode.Normal)) overlayMode = OverlayMode.Normal;
@@ -121,6 +129,8 @@ public sealed class InspectionPanel
             if (ImGui.RadioButton("Oxygen", overlayMode == OverlayMode.Oxygen)) overlayMode = OverlayMode.Oxygen;
             ImGui.SameLine();
             if (ImGui.RadioButton("Power Grid", overlayMode == OverlayMode.Power)) overlayMode = OverlayMode.Power;
+            ImGui.SameLine();
+            if (ImGui.RadioButton("Plumbing", overlayMode == OverlayMode.Plumbing)) overlayMode = OverlayMode.Plumbing;
             ImGui.SameLine();
             if (ImGui.RadioButton("Hazards", overlayMode == OverlayMode.Hazards)) overlayMode = OverlayMode.Hazards;
 
@@ -148,7 +158,6 @@ public sealed class InspectionPanel
 
         if (ImGui.Begin("Inspector Panel", ImGuiWindowFlags.NoCollapse))
         {
-            // Check if selected tile has a machine
             if (selectedTile.HasValue)
             {
                 var machOnTile = sim.Machines.FirstOrDefault(m => m.Position == selectedTile.Value);
@@ -177,6 +186,18 @@ public sealed class InspectionPanel
                 if (selectedMachine.Type == MachineType.Reactor)
                 {
                     ImGui.Text($"Output Generation: {selectedMachine.PowerProductionKW:F1} kW");
+                    ImGui.Text($"Core Heat Gen:     +{selectedMachine.HeatGenerationKW:F1} kW");
+                    ImGui.Text($"Core Temperature:  {selectedMachine.CoreTemperatureKelvin:F1} K ({selectedMachine.CoreTemperatureKelvin - 273.15:F1} °C)");
+
+                    if (selectedMachine.IsScrammed)
+                    {
+                        ImGui.TextColored(new float4(1.0f, 0.2f, 0.2f, 1.0f), "SCRAM STATUS: EMERGENCY REACTOR TRIP (OVERHEAT)");
+                        if (ImGui.Button("Reset SCRAM & Restart"))
+                        {
+                            selectedMachine.IsScrammed = false;
+                            selectedMachine.IsOnline = true;
+                        }
+                    }
                 }
                 else if (selectedMachine.Type == MachineType.Battery)
                 {
@@ -184,6 +205,43 @@ public sealed class InspectionPanel
                     ImGui.Text($"Stored Energy: {selectedMachine.BatteryStoredKWh:F2} kWh");
                     float pct = selectedMachine.BatteryCapacityKWh > 0 ? (float)(selectedMachine.BatteryStoredKWh / selectedMachine.BatteryCapacityKWh) : 0f;
                     ImGui.ProgressBar(pct, new float2(280f, 18f), $"{pct * 100f:F0}%");
+                }
+                else if (selectedMachine.Type == MachineType.MiningLaser)
+                {
+                    ImGui.Text($"Power Draw: {selectedMachine.PowerConsumptionKW:F1} kW");
+                    ImGui.Text($"Target Asteroid: {(selectedMachine.TargetAsteroidCoord.HasValue ? selectedMachine.TargetAsteroidCoord.Value.ToString() : "None (Auto-scanning)")}");
+                    ImGui.Text($"Total Ore Extracted: {selectedMachine.TotalOreExtracted} chunks");
+                    float mPct = (float)(selectedMachine.MiningProgressSeconds / selectedMachine.MiningCycleSeconds);
+                    ImGui.ProgressBar(mPct, new float2(280f, 18f), $"Pulse: {mPct * 100f:F0}%");
+                }
+                else if (selectedMachine.Type == MachineType.SmelterRefinery)
+                {
+                    ImGui.Text($"Power Draw: {selectedMachine.PowerConsumptionKW:F1} kW");
+                    ImGui.Text($"Iron Ore in Hopper: {selectedMachine.IronOreStored} units");
+                    float sPct = (float)(selectedMachine.SmeltProgressSeconds / selectedMachine.SmeltCycleSeconds);
+                    ImGui.ProgressBar(sPct, new float2(280f, 18f), $"Smelting: {sPct * 100f:F0}%");
+                }
+                else if (selectedMachine.Type == MachineType.HydroponicsBay)
+                {
+                    ImGui.Text($"Power Draw: {selectedMachine.PowerConsumptionKW:F1} kW");
+                    ImGui.Text($"Water Reservoir: {selectedMachine.WaterStoredLiters:F1} Liters");
+                    float gPct = (float)(selectedMachine.GrowthProgressSeconds / selectedMachine.GrowthCycleSeconds);
+                    ImGui.ProgressBar(gPct, new float2(280f, 18f), $"Crop Growth: {gPct * 100f:F0}%");
+                }
+                else if (selectedMachine.Type == MachineType.FuelTank)
+                {
+                    ImGui.Text($"Propellant Stored: {selectedMachine.FuelStoredKg:F1} / {selectedMachine.FuelCapacityKg:F1} kg");
+                    float fPct = selectedMachine.FuelCapacityKg > 0 ? (float)(selectedMachine.FuelStoredKg / selectedMachine.FuelCapacityKg) : 0f;
+                    ImGui.ProgressBar(fPct, new float2(280f, 18f), $"{fPct * 100f:F0}%");
+                }
+                else if (selectedMachine.Type == MachineType.MainEngine)
+                {
+                    ImGui.Text($"Thrust Output: {selectedMachine.ThrustKN:F1} kN");
+                    ImGui.Text($"Fuel Consumption: {selectedMachine.FuelBurnRateKgPerSecond:F1} kg/s");
+                    if (ImGui.Button(selectedMachine.IsFiring ? "Cutoff Engine" : "Ignite Engine (Burn)"))
+                    {
+                        selectedMachine.IsFiring = !selectedMachine.IsFiring;
+                    }
                 }
                 else
                 {
@@ -200,16 +258,28 @@ public sealed class InspectionPanel
             // 2. Crew Selection Details
             if (selectedCrew != null)
             {
-                ImGui.TextColored(new float4(0.2f, 0.8f, 1.0f, 1.0f), $"SELECTED CREW: {selectedCrew.Name.ToUpper()}");
+                ImGui.TextColored(new float4(0.2f, 0.8f, 1.0f, 1.0f), $"CREW: {selectedCrew.Name.ToUpper()} ({selectedCrew.Role.ToUpper()})");
                 ImGui.Separator();
 
                 var ai = sim.Crew.FirstOrDefault(c => c.Crew.Id == selectedCrew.Id);
 
                 ImGui.Text("Health:");
-                ImGui.ProgressBar((float)(selectedCrew.Physiology.Health / 100.0), new float2(280f, 18f), $"{selectedCrew.Physiology.Health:F0}%");
+                ImGui.ProgressBar((float)(selectedCrew.Physiology.Health / 100.0), new float2(280f, 16f), $"{selectedCrew.Physiology.Health:F0}%");
 
                 ImGui.Text("Oxygen Saturation:");
-                ImGui.ProgressBar((float)(selectedCrew.Physiology.OxygenSaturation / 100.0), new float2(280f, 18f), $"{selectedCrew.Physiology.OxygenSaturation:F0}%");
+                ImGui.ProgressBar((float)(selectedCrew.Physiology.OxygenSaturation / 100.0), new float2(280f, 16f), $"{selectedCrew.Physiology.OxygenSaturation:F0}%");
+
+                ImGui.Text("Hunger:");
+                float hPct = (float)(selectedCrew.Physiology.Hunger / 100.0);
+                ImGui.ProgressBar(hPct, new float2(280f, 16f), $"{selectedCrew.Physiology.Hunger:F0}%");
+
+                ImGui.Text("Thirst:");
+                float tPct = (float)(selectedCrew.Physiology.Thirst / 100.0);
+                ImGui.ProgressBar(tPct, new float2(280f, 16f), $"{selectedCrew.Physiology.Thirst:F0}%");
+
+                ImGui.Text("Fatigue:");
+                float fPct = (float)(selectedCrew.Physiology.Fatigue / 100.0);
+                ImGui.ProgressBar(fPct, new float2(280f, 16f), $"{selectedCrew.Physiology.Fatigue:F0}%");
 
                 ImGui.Spacing();
                 ImGui.Text($"Position: {selectedCrew.Position}");
@@ -229,7 +299,7 @@ public sealed class InspectionPanel
                 }
 
                 ImGui.Spacing();
-                ImGui.Text("Inventory Items:");
+                ImGui.Text("Carried Inventory:");
                 if (selectedCrew.Inventory.Count == 0)
                 {
                     ImGui.TextDisabled("  (Hands empty)");
@@ -256,14 +326,35 @@ public sealed class InspectionPanel
 
                 ImGui.Text($"Structure Type: {tile.Type}");
                 ImGui.Text($"Airtight: {(tile.IsAirtight ? "YES" : "NO")}");
-                ImGui.Text($"Has Cable: {(sim.Cables.Contains(coord) ? "YES" : "NO")}");
+
+                if (tile.Type == TileType.Asteroid)
+                {
+                    ImGui.TextColored(new float4(0.9f, 0.8f, 0.4f, 1.0f), "MINERAL DEPOSIT:");
+                    ImGui.Text($"  Iron Ore: {tile.AsteroidIronOre} units");
+                    ImGui.Text($"  Ice Ore:  {tile.AsteroidIceOre} units");
+                }
+
+                // Cable & Plumbing Utilities
+                ImGui.Spacing();
+                ImGui.TextDisabled("Infrastructure:");
 
                 if (ImGui.Button(sim.Cables.Contains(coord) ? "Remove Cable" : "Lay Power Cable"))
                 {
-                    if (sim.Cables.Contains(coord))
-                        sim.Cables.Remove(coord);
-                    else
-                        sim.Cables.Add(coord);
+                    if (sim.Cables.Contains(coord)) sim.Cables.Remove(coord);
+                    else sim.Cables.Add(coord);
+                }
+
+                ImGui.SameLine();
+                if (ImGui.Button(sim.PlumbingSolver.CoolantPipes.Contains(coord) ? "Remove Coolant Pipe" : "Lay Coolant Pipe"))
+                {
+                    if (sim.PlumbingSolver.CoolantPipes.Contains(coord)) sim.PlumbingSolver.CoolantPipes.Remove(coord);
+                    else sim.PlumbingSolver.CoolantPipes.Add(coord);
+                }
+
+                if (ImGui.Button(sim.PlumbingSolver.PropellantPipes.Contains(coord) ? "Remove Fuel Line" : "Lay Fuel Line"))
+                {
+                    if (sim.PlumbingSolver.PropellantPipes.Contains(coord)) sim.PlumbingSolver.PropellantPipes.Remove(coord);
+                    else sim.PlumbingSolver.PropellantPipes.Add(coord);
                 }
 
                 if (tile.Type == TileType.Door)

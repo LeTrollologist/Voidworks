@@ -5,5 +5,10 @@ public enum ItemType
     EvaSuit,
     OxygenTank,
     WeldingTorch,
-    SteelPlate
+    SteelPlate,
+    IronOre,
+    IceOre,
+    WaterRation,
+    FoodRation,
+    FuelCanister
 }

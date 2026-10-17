@@ -10,13 +10,23 @@ public sealed class ShipTile
     public bool IsBreached { get; set; }
     public GasMix Atmosphere { get; set; }
 
+    // Asteroid mineral resources
+    public int AsteroidIronOre { get; set; } = 0;
+    public int AsteroidIceOre { get; set; } = 0;
+
     public ShipTile(GridCoord coord, TileType type = TileType.Space)
     {
         Coord = coord;
         Type = type;
         DoorState = DoorState.Closed;
         IsBreached = false;
-        Atmosphere = type == TileType.Space ? GasMix.Vacuum() : GasMix.StandardAir();
+        Atmosphere = (type == TileType.Space || type == TileType.Asteroid) ? GasMix.Vacuum() : GasMix.StandardAir();
+
+        if (type == TileType.Asteroid)
+        {
+            AsteroidIronOre = 10;
+            AsteroidIceOre = 5;
+        }
     }
 
     public bool IsAirtight
@@ -26,7 +36,7 @@ public sealed class ShipTile
             if (IsBreached) return false;
             return Type switch
             {
-                TileType.HullWall or TileType.InteriorWall => true,
+                TileType.HullWall or TileType.InteriorWall or TileType.Asteroid => true,
                 TileType.Door => DoorState == DoorState.Closed,
                 _ => false
             };

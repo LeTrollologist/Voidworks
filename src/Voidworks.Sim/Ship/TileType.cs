@@ -6,7 +6,8 @@ public enum TileType
     HullWall,
     InteriorWall,
     Floor,
-    Door
+    Door,
+    Asteroid
 }
 
 public enum DoorState

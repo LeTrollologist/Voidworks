@@ -5,5 +5,11 @@ public enum JobType
     Idle,
     FetchItem,
     EquipSuit,
-    RepairBreach
+    RepairBreach,
+    EatFood,
+    DrinkWater,
+    Rest,
+    RefineOre,
+    HarvestCrops,
+    MineAsteroid
 }
