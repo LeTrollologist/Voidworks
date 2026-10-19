@@ -43,10 +43,11 @@ public sealed class JobManager
             .FirstOrDefault();
     }
 
-    public Job? ClaimHighestPriorityJob(Crew.CrewMember crew)
+    public Job? ClaimHighestPriorityJob(Crew.CrewMember crew, Guid? excludedJobId = null)
     {
         var job = _jobs
-            .Where(j => !j.IsCompleted && !j.IsCancelled &&
+            .Where(j => (!excludedJobId.HasValue || j.Id != excludedJobId.Value) &&
+                        !j.IsCompleted && !j.IsCancelled &&
                         (j.AssignedCrewId == null || j.AssignedCrewId == crew.Id) &&
                         (j.TargetItem?.ReservedByCrewId == null || j.TargetItem.ReservedByCrewId == crew.Id))
             .OrderByDescending(j => j.Priority)

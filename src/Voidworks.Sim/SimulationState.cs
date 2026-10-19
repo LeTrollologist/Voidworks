@@ -66,7 +66,11 @@ public sealed class SimulationState
         // 6. Tick crew physiology & autonomous AI
         foreach (var c in Crew)
         {
-            c.Tick(Grid, JobManager, dt);
+            int nearbyCrewCount = Crew.Count(other => other != c &&
+                other.Crew.Physiology.IsAlive && !other.Crew.Physiology.IsIncapacitated &&
+                Math.Abs(other.Crew.Position.X - c.Crew.Position.X) +
+                Math.Abs(other.Crew.Position.Y - c.Crew.Position.Y) <= 2);
+            c.Tick(Grid, JobManager, dt, nearbyCrewCount);
         }
 
         // 7. Detect world emergencies (breaches, broken systems)

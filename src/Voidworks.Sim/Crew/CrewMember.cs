@@ -14,6 +14,7 @@ public sealed class CrewMember
     public string Role { get; set; } = "Generalist";
     public GridCoord? AssignedBunkCoord { get; set; }
     public Physiology Physiology { get; } = new();
+    public CrewPsychology Psychology { get; }
 
     public bool IsEquippedWithSuit { get; set; }
     public Item? EquippedOxygenTank { get; set; }
@@ -33,7 +34,7 @@ public sealed class CrewMember
                 + 0.25 * Math.Clamp((100.0 - physiology.OxygenSaturation) / 100.0, 0.0, 1.0)
                 + 0.1 * Math.Clamp(physiology.Thirst / 100.0, 0.0, 1.0)
                 + 0.1 * Math.Clamp(physiology.Hunger / 100.0, 0.0, 1.0);
-            return Math.Max(0.1, MoveSpeed * (1.0 - Math.Min(0.8, conditionPenalty)));
+            return Math.Max(0.1, MoveSpeed * (1.0 - Math.Min(0.8, conditionPenalty)) * Psychology.MovementSpeedMultiplier);
         }
     }
 
@@ -42,6 +43,7 @@ public sealed class CrewMember
         Name = name;
         Position = initialPosition;
         Role = role;
+        Psychology = new CrewPsychology($"{name}|{role}|{initialPosition.X}|{initialPosition.Y}");
     }
 
     internal void RestoreId(Guid id)

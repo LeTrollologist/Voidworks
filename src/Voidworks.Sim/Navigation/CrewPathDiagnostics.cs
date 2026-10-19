@@ -35,6 +35,7 @@ public readonly record struct CrewPathDiagnostics(
     double RoleSensitivity,
     double ConditionMultiplier,
     double SuitProtection,
+    double PsychologySensitivity,
     bool HasWorkingSuit)
 {
     public double TotalCost => MovementCost + DoorPenalty + HazardCosts.Total;

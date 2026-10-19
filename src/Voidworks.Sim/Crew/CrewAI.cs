@@ -13,6 +13,12 @@ public sealed class CrewAI
     private readonly Queue<Job> _subJobs = new();
     private List<GridCoord>? _currentPath;
     private double _moveAccumulator = 0.0;
+    private int _consecutiveTaskFailures;
+    private bool _isRetreating;
+    private GridCoord? _retreatTarget;
+    private double _retreatRetryTimer;
+    private Guid? _deferredJobId;
+    private double _deferredJobTimer;
 
     public CrewMember Crew { get; }
     public Job? CurrentJob { get; private set; }
@@ -20,6 +26,9 @@ public sealed class CrewAI
     public IReadOnlyList<Job> PendingSubJobs => _subJobs.ToArray();
     public IReadOnlyList<GridCoord> CurrentPath => _currentPath == null ? Array.Empty<GridCoord>() : _currentPath;
     public double MovementAccumulator => _moveAccumulator;
+    public CrewDecisionDiagnostic? LastDiagnostic { get; private set; }
+    public bool IsRequestingAssistance => LastDiagnostic is
+        { Reason: CrewDiagnosticReason.RepeatedTaskFailure, FailureCount: >= 3 };
 
     public CrewAI(CrewMember crew)
     {
@@ -43,13 +52,20 @@ public sealed class CrewAI
         CurrentActivity = currentActivity;
     }
 
-    public void Tick(ShipGrid grid, JobManager jobManager, double dt)
+    public void Tick(ShipGrid grid, JobManager jobManager, double dt, int nearbyCrewCount = 0)
     {
         if (dt <= 0) return;
 
         // 1. Update physiology
         var currentTile = grid[Crew.Position];
+        double previousHealth = Crew.Physiology.Health;
         Crew.Physiology.Tick(Crew, currentTile, dt);
+        Crew.Psychology.RegisterInjury(previousHealth - Crew.Physiology.Health);
+        Crew.Psychology.Tick(Crew, currentTile, CurrentJob != null || _subJobs.Count > 0, nearbyCrewCount, dt);
+        _retreatRetryTimer = Math.Max(0.0, _retreatRetryTimer - dt);
+        _deferredJobTimer = Math.Max(0.0, _deferredJobTimer - dt);
+        if (_deferredJobTimer <= 0.0)
+            _deferredJobId = null;
 
         if (!Crew.Physiology.IsAlive)
         {
@@ -73,6 +89,34 @@ public sealed class CrewAI
             return;
         }
 
+        if (Crew.Psychology.ShouldRetreat(Crew, currentTile))
+        {
+            if (!_isRetreating && _retreatRetryTimer <= 0.0)
+                StartRetreat(grid, jobManager);
+
+            if (_isRetreating && _retreatTarget == Crew.Position && (_currentPath == null || _currentPath.Count == 0))
+            {
+                _isRetreating = false;
+                _retreatTarget = null;
+                CurrentActivity = "Reached a safer area";
+                return;
+            }
+
+            if (!_isRetreating)
+            {
+                CurrentActivity = LastDiagnostic == null
+                    ? "Unable to find a safe retreat route"
+                    : $"Retreat blocked: {LastDiagnostic.Reason}";
+                return;
+            }
+        }
+        else if (_isRetreating)
+        {
+            _isRetreating = false;
+            _retreatTarget = null;
+            _currentPath = null;
+        }
+
         // Emergency jobs interrupt routine work before the crew spends another tick
         // following a lower-priority route or performing its current task.
         if (CurrentJob != null && CurrentJob.Priority < 100)
@@ -85,6 +129,7 @@ public sealed class CrewAI
 
             if (emergency != null)
             {
+                Crew.Psychology.RegisterJobInterrupted();
                 jobManager.ReleaseJob(CurrentJob);
                 CurrentJob = null;
                 _subJobs.Clear();
@@ -99,14 +144,18 @@ public sealed class CrewAI
             // Replan against current atmosphere every tick so a spreading hazard
             // cannot leave the crew committed to an obsolete, unsafe route.
             GridCoord routeGoal = _currentPath[^1];
-            var refreshedPath = AStarPathfinder.FindPath(grid, Crew.Position, routeGoal, Crew);
+            var routeResult = AStarPathfinder.FindPathWithDiagnostics(grid, Crew.Position, routeGoal, Crew);
+            var refreshedPath = routeResult.Path;
             if (refreshedPath == null || refreshedPath.Count <= 1)
             {
+                if (refreshedPath == null)
+                    RecordNavigationFailure(routeResult, routeGoal);
                 _currentPath = null;
                 _moveAccumulator = 0.0;
             }
             else
             {
+                ClearFailureAfterSuccess();
                 refreshedPath.RemoveAt(0);
                 _currentPath = refreshedPath;
             }
@@ -145,6 +194,18 @@ public sealed class CrewAI
             }
         }
 
+        if (_isRetreating)
+        {
+            _isRetreating = false;
+            bool reachedSafety = _retreatTarget == Crew.Position;
+            _retreatTarget = null;
+            if (reachedSafety)
+                CurrentActivity = "Reached a safer area";
+            else
+                CurrentActivity = "Retreat route interrupted";
+            return;
+        }
+
         // 3. Process current job
         if (CurrentJob != null)
         {
@@ -164,8 +225,11 @@ public sealed class CrewAI
 
     private void EvaluateNextTask(ShipGrid grid, JobManager jobManager)
     {
+        bool emergencyPlanFailed = false;
         // First, check critical emergencies from the world board (breaches)
-        var emergencyJob = jobManager.ClaimHighestPriorityJob(Crew);
+        var emergencyJob = jobManager.ClaimHighestPriorityJob(
+            Crew,
+            _deferredJobTimer > 0.0 ? _deferredJobId : null);
         if (emergencyJob != null && emergencyJob.Priority >= 100)
         {
             if (emergencyJob.Type == JobType.RepairBreach)
@@ -174,6 +238,7 @@ public sealed class CrewAI
                 if (!planSucceeded)
                 {
                     jobManager.ReleaseJob(emergencyJob);
+                    emergencyPlanFailed = true;
                     CurrentActivity = "Unable to meet preconditions for breach repair";
                 }
                 else if (_subJobs.Count > 0)
@@ -190,7 +255,8 @@ public sealed class CrewAI
         }
 
         // Next, check personal biological needs (Thirst, Hunger, Fatigue)
-        if (Crew.Physiology.Thirst > 60.0)
+        double personalNeedThreshold = Crew.Psychology.PersonalNeedThreshold;
+        if (Crew.Physiology.Thirst > personalNeedThreshold)
         {
             var water = jobManager.FindAvailableItem(ItemType.WaterRation, Crew.Position, Crew.Id);
             if (water != null)
@@ -204,7 +270,7 @@ public sealed class CrewAI
             }
         }
 
-        if (Crew.Physiology.Hunger > 60.0)
+        if (Crew.Physiology.Hunger > personalNeedThreshold)
         {
             var food = jobManager.FindAvailableItem(ItemType.FoodRation, Crew.Position, Crew.Id);
             if (food != null)
@@ -218,7 +284,7 @@ public sealed class CrewAI
             }
         }
 
-        if (Crew.Physiology.Fatigue > 75.0 && Crew.AssignedBunkCoord.HasValue)
+        if (Crew.Physiology.Fatigue > Math.Clamp(personalNeedThreshold + 15.0, 55.0, 85.0) && Crew.AssignedBunkCoord.HasValue)
         {
             _subJobs.Clear();
             _subJobs.Enqueue(Job.CreateRest(Crew.AssignedBunkCoord.Value, priority: 70, restSeconds: 4.0));
@@ -227,13 +293,15 @@ public sealed class CrewAI
         }
 
         // Routine tasks
-        if (emergencyJob != null)
+        if (emergencyJob != null && !emergencyPlanFailed)
         {
             CurrentJob = emergencyJob;
             return;
         }
 
-        CurrentActivity = "Idle";
+        CurrentActivity = IsRequestingAssistance && _deferredJobTimer > 0.0
+            ? "Waiting for assistance on a deferred task"
+            : "Idle";
     }
 
     private bool PlanBreachRepairPrerequisites(ShipGrid grid, JobManager jobManager, Job breachJob)
@@ -260,11 +328,21 @@ public sealed class CrewAI
             ? null
             : jobManager.FindAvailableItem(ItemType.SteelPlate, Crew.Position, Crew.Id);
 
-        if ((!Crew.IsEquippedWithSuit && suit == null) ||
-            (!Crew.HasUsableOxygenSupply && oxygenTank == null) ||
-            (!Crew.HasItem(ItemType.WeldingTorch) && torch == null) ||
-            (!Crew.HasItem(ItemType.SteelPlate) && plate == null))
+        var missingResources = new List<string>();
+        if (!Crew.IsEquippedWithSuit && suit == null) missingResources.Add("EVA suit");
+        if (!Crew.HasUsableOxygenSupply && oxygenTank == null) missingResources.Add("usable oxygen tank");
+        if (!Crew.HasItem(ItemType.WeldingTorch) && torch == null) missingResources.Add("welding torch");
+        if (!Crew.HasItem(ItemType.SteelPlate) && plate == null) missingResources.Add("steel plate");
+        if (missingResources.Count > 0)
+        {
+            RecordTaskFailure(new CrewDecisionDiagnostic(
+                CrewDiagnosticReason.ResourceUnavailable,
+                breachJob.TargetCoord,
+                Crew.Position,
+                null,
+                $"Required for breach repair: {string.Join(", ", missingResources)}."), breachJob);
             return false;
+        }
 
         QueueRequiredItem(suit, 110);
         QueueRequiredItem(oxygenTank, 110);
@@ -344,14 +422,18 @@ public sealed class CrewAI
             return;
         }
 
-        var path = AStarPathfinder.FindPath(grid, Crew.Position, item.Position, Crew);
-        if (path == null || path.Count <= 1)
+        var routeResult = AStarPathfinder.FindPathWithDiagnostics(grid, Crew.Position, item.Position, Crew);
+        if (routeResult.Path == null || routeResult.Path.Count <= 1)
         {
+            RecordNavigationFailure(routeResult, item.Position);
             item.ReservedByCrewId = null;
+            jobManager.ReleaseJob(CurrentJob);
             CurrentJob = null;
             return;
         }
 
+        ClearFailureAfterSuccess();
+        var path = routeResult.Path;
         path.RemoveAt(0);
         _currentPath = path;
         CurrentActivity = $"Navigating to {item.Name}";
@@ -390,14 +472,17 @@ public sealed class CrewAI
                 return;
             }
 
-            var pathToOre = AStarPathfinder.FindPath(grid, Crew.Position, ore.Position, Crew);
-            if (pathToOre == null || pathToOre.Count <= 1)
+            var oreRouteResult = AStarPathfinder.FindPathWithDiagnostics(grid, Crew.Position, ore.Position, Crew);
+            if (oreRouteResult.Path == null || oreRouteResult.Path.Count <= 1)
             {
+                RecordNavigationFailure(oreRouteResult, ore.Position);
                 jobManager.ReleaseJob(job);
                 CurrentJob = null;
                 return;
             }
 
+            ClearFailureAfterSuccess();
+            var pathToOre = oreRouteResult.Path;
             pathToOre.RemoveAt(0);
             _currentPath = pathToOre;
             CurrentActivity = $"Navigating to {ore.Name}";
@@ -416,14 +501,17 @@ public sealed class CrewAI
             return;
         }
 
-        var pathToSmelter = AStarPathfinder.FindPath(grid, Crew.Position, job.TargetCoord, Crew);
-        if (pathToSmelter == null || pathToSmelter.Count <= 1)
+        var smelterRouteResult = AStarPathfinder.FindPathWithDiagnostics(grid, Crew.Position, job.TargetCoord, Crew);
+        if (smelterRouteResult.Path == null || smelterRouteResult.Path.Count <= 1)
         {
+            RecordNavigationFailure(smelterRouteResult, job.TargetCoord);
             jobManager.ReleaseJob(job);
             CurrentJob = null;
             return;
         }
 
+        ClearFailureAfterSuccess();
+        var pathToSmelter = smelterRouteResult.Path;
         pathToSmelter.RemoveAt(0);
         _currentPath = pathToSmelter;
         CurrentActivity = "Delivering iron ore to the refinery";
@@ -469,7 +557,7 @@ public sealed class CrewAI
             }
 
             CurrentActivity = $"Welding breach at {breachCoord}...";
-            CurrentJob.WorkRemainingSeconds -= dt;
+            CurrentJob.WorkRemainingSeconds -= dt * Crew.Psychology.WorkRateMultiplier;
 
             if (CurrentJob.WorkRemainingSeconds <= 0)
             {
@@ -489,15 +577,18 @@ public sealed class CrewAI
             return;
         }
 
-        var path = AStarPathfinder.FindPathToAdjacent(grid, Crew.Position, breachCoord, Crew);
-        if (path == null || path.Count <= 1)
+        var routeResult = AStarPathfinder.FindPathToAdjacentWithDiagnostics(grid, Crew.Position, breachCoord, Crew);
+        if (routeResult.Path == null || routeResult.Path.Count <= 1)
         {
+            RecordNavigationFailure(routeResult, breachCoord);
             jobManager.ReleaseJob(CurrentJob);
             CurrentJob = null;
             CurrentActivity = "Cannot reach breach";
             return;
         }
 
+        ClearFailureAfterSuccess();
+        var path = routeResult.Path;
         path.RemoveAt(0);
         _currentPath = path;
         CurrentActivity = $"Moving to breach at {breachCoord}";
@@ -513,7 +604,7 @@ public sealed class CrewAI
         }
 
         CurrentActivity = "Eating food ration...";
-        CurrentJob!.WorkRemainingSeconds -= dt;
+        CurrentJob!.WorkRemainingSeconds -= dt * Crew.Psychology.WorkRateMultiplier;
 
         if (CurrentJob.WorkRemainingSeconds <= 0)
         {
@@ -534,7 +625,7 @@ public sealed class CrewAI
         }
 
         CurrentActivity = "Drinking water...";
-        CurrentJob!.WorkRemainingSeconds -= dt;
+        CurrentJob!.WorkRemainingSeconds -= dt * Crew.Psychology.WorkRateMultiplier;
 
         if (CurrentJob.WorkRemainingSeconds <= 0)
         {
@@ -563,16 +654,89 @@ public sealed class CrewAI
             return;
         }
 
-        var path = AStarPathfinder.FindPath(grid, Crew.Position, bunkCoord, Crew);
-        if (path == null || path.Count <= 1)
+        var routeResult = AStarPathfinder.FindPathWithDiagnostics(grid, Crew.Position, bunkCoord, Crew);
+        if (routeResult.Path == null || routeResult.Path.Count <= 1)
         {
+            RecordNavigationFailure(routeResult, bunkCoord);
             CurrentJob = null;
             CurrentActivity = "Bunk unreachable";
             return;
         }
 
+        ClearFailureAfterSuccess();
+        var path = routeResult.Path;
         path.RemoveAt(0);
         _currentPath = path;
         CurrentActivity = $"Heading to bunk at {bunkCoord}";
+    }
+
+    private void StartRetreat(ShipGrid grid, JobManager jobManager)
+    {
+        var result = AStarPathfinder.FindPathToNearestSafeTile(grid, Crew.Position, Crew);
+        if (result.Path == null || result.Path.Count <= 1)
+        {
+            LastDiagnostic = result.Diagnostic;
+            _currentPath = null;
+            _moveAccumulator = 0.0;
+            _retreatRetryTimer = 2.0;
+            CurrentActivity = $"Retreat blocked: {result.Diagnostic.Reason}";
+            return;
+        }
+
+        if (CurrentJob != null)
+        {
+            Crew.Psychology.RegisterJobInterrupted();
+            jobManager.ReleaseJob(CurrentJob);
+            CurrentJob = null;
+        }
+
+        foreach (var pending in _subJobs)
+        {
+            jobManager.ReleaseJob(pending);
+            if (pending.TargetItem?.ReservedByCrewId == Crew.Id)
+                pending.TargetItem.ReservedByCrewId = null;
+        }
+        _subJobs.Clear();
+
+        LastDiagnostic = null;
+        ClearFailureAfterSuccess();
+        result.Path.RemoveAt(0);
+        _currentPath = result.Path;
+        _retreatTarget = _currentPath[^1];
+        _isRetreating = true;
+        CurrentActivity = $"Retreating to safety at {_retreatTarget.Value}";
+    }
+
+    private void RecordNavigationFailure(PathfindingResult result, GridCoord target)
+    {
+        var diagnostic = result.Diagnostic with { Target = target };
+        RecordTaskFailure(diagnostic, CurrentJob);
+    }
+
+    private void RecordTaskFailure(CrewDecisionDiagnostic diagnostic, Job? failedJob = null)
+    {
+        _consecutiveTaskFailures++;
+        Crew.Psychology.RegisterTaskFailure(_consecutiveTaskFailures);
+        LastDiagnostic = _consecutiveTaskFailures >= 3
+            ? diagnostic with
+            {
+                Reason = CrewDiagnosticReason.RepeatedTaskFailure,
+                FailureCount = _consecutiveTaskFailures,
+                UnderlyingReason = diagnostic.Reason
+            }
+            : diagnostic with { FailureCount = _consecutiveTaskFailures };
+
+        if (_consecutiveTaskFailures >= 3 && (failedJob ?? CurrentJob) is { } job)
+        {
+            _deferredJobId = job.Id;
+            _deferredJobTimer = 15.0;
+            CurrentActivity = $"Requesting assistance: {LastDiagnostic.UnderlyingReason ?? LastDiagnostic.Reason}";
+        }
+    }
+
+    private void ClearFailureAfterSuccess()
+    {
+        _consecutiveTaskFailures = 0;
+        LastDiagnostic = null;
     }
 }

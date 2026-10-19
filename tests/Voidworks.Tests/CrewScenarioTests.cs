@@ -39,6 +39,105 @@ public class CrewScenarioTests
     }
 
     [Fact]
+    public void CrewPsychology_IsDeterministicAndKeepsDynamicValuesIndependent()
+    {
+        var grid = new ShipGrid(7, 5);
+        grid.BuildRoom(0, 0, 6, 4, TileType.HullWall);
+        var start = new GridCoord(1, 2);
+        var crewA = new CrewMember("Chen", start, "Engineer");
+        var crewB = new CrewMember("Chen", start, "Engineer");
+        grid[start].IsBreached = true;
+
+        crewA.Psychology.Tick(crewA, grid[start], hasActiveTask: true, nearbyCrewCount: 1, dt: 1.0);
+        crewB.Psychology.Tick(crewB, grid[start], hasActiveTask: true, nearbyCrewCount: 1, dt: 1.0);
+
+        Assert.Equal(crewA.Psychology.Courage, crewB.Psychology.Courage);
+        Assert.Equal(crewA.Psychology.Discipline, crewB.Psychology.Discipline);
+        Assert.Equal(crewA.Psychology.SelfPreservation, crewB.Psychology.SelfPreservation);
+        Assert.Equal(crewA.Psychology.Determination, crewB.Psychology.Determination);
+        Assert.Equal(crewA.Psychology.Sociability, crewB.Psychology.Sociability);
+        Assert.Equal(crewA.Psychology.Fear, crewB.Psychology.Fear);
+        Assert.Equal(crewA.Psychology.Motivation, crewB.Psychology.Motivation);
+        Assert.True(crewA.Psychology.Fear > 0.0);
+        Assert.True(crewA.Psychology.Motivation > 0.0);
+    }
+
+    [Fact]
+    public void CrewRouteDiagnostics_IdentifyLockedDoorAndSolidObstacle()
+    {
+        var lockedDoorGrid = new ShipGrid(7, 5);
+        lockedDoorGrid.BuildRoom(0, 0, 6, 4, TileType.HullWall);
+        for (int y = 1; y < 4; y++)
+            lockedDoorGrid[3, y].Type = TileType.InteriorWall;
+        lockedDoorGrid.PlaceDoor(3, 2, DoorState.Locked);
+
+        var crew = new CrewMember("Miller", new GridCoord(1, 2), "Engineer");
+        var lockedDoor = AStarPathfinder.FindPathWithDiagnostics(
+            lockedDoorGrid, crew.Position, new GridCoord(5, 2), crew);
+
+        Assert.Null(lockedDoor.Path);
+        Assert.Equal(CrewDiagnosticReason.BlockedByLockedDoor, lockedDoor.Diagnostic.Reason);
+        Assert.Equal(new GridCoord(3, 2), lockedDoor.Diagnostic.BlockingTile);
+        Assert.Equal(new GridCoord(2, 2), lockedDoor.Diagnostic.LastReachable);
+
+        var obstacleGrid = new ShipGrid(7, 5);
+        obstacleGrid.BuildRoom(0, 0, 6, 4, TileType.HullWall);
+        for (int y = 1; y < 4; y++)
+            obstacleGrid[3, y].Type = TileType.InteriorWall;
+
+        var obstacle = AStarPathfinder.FindPathWithDiagnostics(
+            obstacleGrid, crew.Position, new GridCoord(5, 2), crew);
+
+        Assert.Null(obstacle.Path);
+        Assert.Equal(CrewDiagnosticReason.BlockedByObstacle, obstacle.Diagnostic.Reason);
+        Assert.NotNull(obstacle.Diagnostic.BlockingTile);
+    }
+
+    [Fact]
+    public void CrewPsychologyCannotMakeVacuumPathPossibleWithoutWorkingSuit()
+    {
+        var grid = new ShipGrid(8, 5);
+        grid.BuildRoom(0, 0, 7, 4, TileType.HullWall);
+        grid[3, 1].Type = TileType.InteriorWall;
+        grid[3, 3].Type = TileType.InteriorWall;
+        grid[3, 2].IsBreached = true;
+        var crew = new CrewMember("Miller", new GridCoord(1, 2), "Engineer");
+        crew.Psychology.Restore(100.0, 100.0, 0.0, 100.0, 100.0, 100.0, 0.0, 0.0, 0.0, 100.0);
+
+        var route = AStarPathfinder.FindPathWithDiagnostics(grid, crew.Position, new GridCoord(5, 2), crew);
+
+        Assert.Null(route.Path);
+        Assert.Equal(CrewDiagnosticReason.HazardExceedsTolerance, route.Diagnostic.Reason);
+        Assert.Equal(new GridCoord(3, 2), route.Diagnostic.BlockingTile);
+        Assert.True(route.Diagnostic.PhysicalRouteExists);
+        Assert.Contains(new GridCoord(3, 2), route.PhysicalPath!);
+    }
+
+    [Fact]
+    public void CrewAI_ReportsAssistanceAndDefersTaskAfterRepeatedResourceFailure()
+    {
+        var grid = new ShipGrid(8, 5);
+        grid.BuildRoom(0, 0, 7, 4, TileType.HullWall);
+        grid.BreachTile(7, 2);
+        var crew = new CrewMember("Miller", new GridCoord(1, 2), "Engineer");
+        var jobs = new JobManager();
+        jobs.ScanWorldForEmergencies(grid);
+        var ai = new CrewAI(crew);
+
+        for (int i = 0; i < 3; i++)
+            ai.Tick(grid, jobs, 0.1);
+
+        Assert.True(ai.IsRequestingAssistance);
+        Assert.Equal(CrewDiagnosticReason.RepeatedTaskFailure, ai.LastDiagnostic?.Reason);
+        Assert.Equal(CrewDiagnosticReason.ResourceUnavailable, ai.LastDiagnostic?.UnderlyingReason);
+
+        ai.Tick(grid, jobs, 0.1);
+
+        Assert.Null(ai.CurrentJob);
+        Assert.Contains("assistance", ai.CurrentActivity, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void CrewAI_ReplansRouteWhenAtmosphereTurnsToxic()
     {
         var grid = new ShipGrid(8, 6);

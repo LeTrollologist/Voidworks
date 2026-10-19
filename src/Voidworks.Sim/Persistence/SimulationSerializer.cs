@@ -140,6 +140,16 @@ public static class SimulationSerializer
                 Hunger = c.Crew.Physiology.Hunger,
                 Thirst = c.Crew.Physiology.Thirst,
                 Fatigue = c.Crew.Physiology.Fatigue,
+                Courage = c.Crew.Psychology.Courage,
+                Discipline = c.Crew.Psychology.Discipline,
+                SelfPreservation = c.Crew.Psychology.SelfPreservation,
+                Determination = c.Crew.Psychology.Determination,
+                Sociability = c.Crew.Psychology.Sociability,
+                Fear = c.Crew.Psychology.Fear,
+                Stress = c.Crew.Psychology.Stress,
+                Anger = c.Crew.Psychology.Anger,
+                Motivation = c.Crew.Psychology.Motivation,
+                Morale = c.Crew.Psychology.Morale,
                 Inventory = c.Crew.Inventory.Select(ToItemDto).ToList(),
                 EquippedTank = c.Crew.EquippedOxygenTank != null ? ToItemDto(c.Crew.EquippedOxygenTank) : null
             }).ToList(),
@@ -280,6 +290,17 @@ public static class SimulationSerializer
             crew.Physiology.Hunger = cDto.Hunger;
             crew.Physiology.Thirst = cDto.Thirst;
             crew.Physiology.Fatigue = cDto.Fatigue;
+            crew.Psychology.Restore(
+                cDto.Courage,
+                cDto.Discipline ?? cDto.WorkEthic ?? 50.0,
+                cDto.SelfPreservation,
+                cDto.Determination ?? 50.0,
+                cDto.Sociability ?? 50.0,
+                cDto.Motivation,
+                cDto.Fear,
+                cDto.Stress ?? 0.0,
+                cDto.Anger,
+                cDto.Morale ?? 70.0);
 
             foreach (var invItemDto in cDto.Inventory)
             {
@@ -561,6 +582,20 @@ public sealed class CrewSaveDto
     public double Hunger { get; set; }
     public double Thirst { get; set; }
     public double Fatigue { get; set; }
+    public double Courage { get; set; } = 50.0;
+    public double? Discipline { get; set; }
+    public double SelfPreservation { get; set; } = 50.0;
+    public double? Determination { get; set; }
+    public double? Sociability { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? WorkEthic { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? Temper { get; set; }
+    public double Fear { get; set; }
+    public double? Stress { get; set; }
+    public double Anger { get; set; }
+    public double Motivation { get; set; } = 50.0;
+    public double? Morale { get; set; }
     public List<ItemSaveDto> Inventory { get; set; } = new();
     public ItemSaveDto? EquippedTank { get; set; }
 }

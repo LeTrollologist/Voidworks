@@ -318,6 +318,29 @@ public sealed class InspectionPanel
                 ImGui.Spacing();
                 ImGui.TextColored(new float4(1.0f, 0.8f, 0.2f, 1.0f), "CURRENT ACTIVITY:");
                 ImGui.Text(ai?.CurrentActivity ?? "Idle");
+                ImGui.TextColored(new float4(0.8f, 0.65f, 1.0f, 1.0f),
+                    "PSYCHOLOGY: independent traits and current pressures");
+                ImGui.Text(
+                    $"Motivation {selectedCrew.Psychology.Motivation:F0}  Fear {selectedCrew.Psychology.Fear:F0}  Stress {selectedCrew.Psychology.Stress:F0}");
+                ImGui.Text(
+                    $"Anger {selectedCrew.Psychology.Anger:F0}  Morale {selectedCrew.Psychology.Morale:F0}");
+                ImGui.TextDisabled(
+                    $"Traits: courage {selectedCrew.Psychology.Courage:F0}, discipline {selectedCrew.Psychology.Discipline:F0}, self-preservation {selectedCrew.Psychology.SelfPreservation:F0}");
+                ImGui.TextDisabled(
+                    $"Determination {selectedCrew.Psychology.Determination:F0}  Sociability {selectedCrew.Psychology.Sociability:F0}");
+
+                if (ai?.LastDiagnostic is { } crewDiagnostic)
+                {
+                    ImGui.TextColored(new float4(1.0f, 0.55f, 0.3f, 1.0f), $"Decision: {crewDiagnostic.Reason}");
+                    if (crewDiagnostic.PhysicalRouteExists)
+                        ImGui.TextDisabled("A physical route exists, but its hazards exceed this crew member's current tolerance.");
+                    ImGui.TextWrapped($"{crewDiagnostic.Detail} Target {crewDiagnostic.Target}; last reachable {crewDiagnostic.LastReachable}; obstacle {crewDiagnostic.BlockingTile?.ToString() ?? "none"}.");
+                    ImGui.TextWrapped($"Possible response: {crewDiagnostic.SuggestedResponse}");
+                    if (crewDiagnostic.FailureCount > 0)
+                        ImGui.TextDisabled($"Consecutive failures: {crewDiagnostic.FailureCount}");
+                    if (ai.IsRequestingAssistance)
+                        ImGui.TextColored(new float4(1.0f, 0.7f, 0.35f, 1.0f), "Crew is requesting assistance with this task.");
+                }
 
                 if (ai?.CurrentJob != null)
                 {
@@ -462,6 +485,23 @@ public sealed class InspectionPanel
                 ImGui.TextColored(CrewPathPalette.GetUiColor(i),
                     $"{crew.Name} ({crew.Role}) · {CrewPathPalette.GetColorName(i)} route");
                 ImGui.TextDisabled($"{ai.CurrentActivity}  |  Position {crew.Position}");
+                ImGui.TextDisabled(
+                    $"Motivation {crew.Psychology.Motivation:F0}  Fear {crew.Psychology.Fear:F0}  Stress {crew.Psychology.Stress:F0}  Anger {crew.Psychology.Anger:F0}  Morale {crew.Psychology.Morale:F0}");
+
+                if (ai.CurrentJob != null)
+                    ImGui.TextDisabled($"Task: {ai.CurrentJob.Name}");
+                if (ai.LastDiagnostic is { } routeFailure)
+                {
+                    string physicalState = routeFailure.PhysicalRouteExists ? "physical route exists but is unsafe" : "no safe route";
+                    ImGui.TextWrapped($"Route: {routeFailure.Reason} to {routeFailure.Target} ({physicalState}); last reachable {routeFailure.LastReachable}; obstacle {routeFailure.BlockingTile?.ToString() ?? "none"}.");
+                    ImGui.TextWrapped($"Decision: {routeFailure.SuggestedResponse}");
+                    if (ai.IsRequestingAssistance)
+                        ImGui.TextColored(new float4(1.0f, 0.7f, 0.35f, 1.0f), "Requesting assistance; this task is deferred briefly.");
+                }
+                else
+                {
+                    ImGui.TextDisabled($"Route: {(ai.CurrentPath.Count > 0 ? "active" : "no active route")}");
+                }
 
                 if (diagnostics.Steps == 0)
                 {
@@ -478,7 +518,7 @@ public sealed class InspectionPanel
 
                 ImGui.TextWrapped($"Hazard cost: {DescribeHazardCosts(diagnostics.HazardCosts)}");
                 ImGui.TextDisabled(
-                    $"Modifiers: role x{diagnostics.RoleSensitivity:F2}, condition x{diagnostics.ConditionMultiplier:F2}, EVA x{diagnostics.SuitProtection:F2}");
+                    $"Modifiers: role x{diagnostics.RoleSensitivity:F2}, condition x{diagnostics.ConditionMultiplier:F2}, EVA x{diagnostics.SuitProtection:F2}, mind x{diagnostics.PsychologySensitivity:F2}");
                 ImGui.Separator();
             }
         }

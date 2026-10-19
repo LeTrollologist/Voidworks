@@ -435,6 +435,7 @@ public class SystemicFailuresAndScenariosTests
         var crew = new CrewMember("Engineer Miller", new GridCoord(4, 3), "Engineer");
         crew.Physiology.Health = 92.5;
         crew.Physiology.Hunger = 33.2;
+        crew.Psychology.Restore(81.0, 62.0, 43.0, 77.0, 55.0, 71.0, 12.0, 24.0, 31.0, 66.0);
         crew.Inventory.Add(new Item(ItemType.WeldingTorch, new GridCoord(4, 3)));
 
         var jobManager = new JobManager();
@@ -488,6 +489,16 @@ public class SystemicFailuresAndScenariosTests
         Assert.Equal("Engineer Miller", restoredCrew.Name);
         Assert.Equal(crew.Physiology.Health, restoredCrew.Physiology.Health);
         Assert.Equal(crew.Physiology.Hunger, restoredCrew.Physiology.Hunger);
+        Assert.Equal(crew.Psychology.Courage, restoredCrew.Psychology.Courage);
+        Assert.Equal(crew.Psychology.Discipline, restoredCrew.Psychology.Discipline);
+        Assert.Equal(crew.Psychology.SelfPreservation, restoredCrew.Psychology.SelfPreservation);
+        Assert.Equal(crew.Psychology.Determination, restoredCrew.Psychology.Determination);
+        Assert.Equal(crew.Psychology.Sociability, restoredCrew.Psychology.Sociability);
+        Assert.Equal(crew.Psychology.Fear, restoredCrew.Psychology.Fear);
+        Assert.Equal(crew.Psychology.Stress, restoredCrew.Psychology.Stress);
+        Assert.Equal(crew.Psychology.Anger, restoredCrew.Psychology.Anger);
+        Assert.Equal(crew.Psychology.Motivation, restoredCrew.Psychology.Motivation);
+        Assert.Equal(crew.Psychology.Morale, restoredCrew.Psychology.Morale);
         Assert.Single(restoredCrew.Inventory);
         Assert.Equal(ItemType.WeldingTorch, restoredCrew.Inventory[0].Type);
 

@@ -9,10 +9,86 @@ namespace Voidworks.Sim.Navigation;
 public static class AStarPathfinder
 {
     public static List<GridCoord>? FindPath(ShipGrid grid, GridCoord start, GridCoord goal, bool canTraverseVacuum = false, bool canOpenDoors = true)
-        => FindPathCore(grid, start, goal, canTraverseVacuum, canOpenDoors, crew: null);
+        => FindPathCore(grid, start, goal, canTraverseVacuum, canOpenDoors, crew: null, allowLockedDoors: false, enforceHazardTolerance: false);
 
     public static List<GridCoord>? FindPath(ShipGrid grid, GridCoord start, GridCoord goal, CrewMember crew, bool canOpenDoors = true)
-        => FindPathCore(grid, start, goal, crew.CanSafelyTraverseVacuum, canOpenDoors, crew);
+        => FindPathWithDiagnostics(grid, start, goal, crew, canOpenDoors).Path;
+
+    public static PathfindingResult FindPathWithDiagnostics(
+        ShipGrid grid,
+        GridCoord start,
+        GridCoord goal,
+        CrewMember crew,
+        bool canOpenDoors = true)
+    {
+        if (!grid.IsInBounds(start) || !grid.IsInBounds(goal))
+            return Failure(CrewDiagnosticReason.NoReachablePath, goal, start, null, "Start or destination is outside the ship grid.");
+
+        var crewPath = FindPathCore(
+            grid, start, goal, crew.CanSafelyTraverseVacuum, canOpenDoors, crew,
+            allowLockedDoors: false, enforceHazardTolerance: true);
+        if (crewPath != null)
+            return Success(crewPath, goal);
+
+        // Check physical reachability separately from safety tolerance. This lets
+        // diagnostics explain when a route exists but a crew member will not use it.
+        var hazardRoute = FindPathCore(
+            grid, start, goal, canTraverseVacuum: true, canOpenDoors: canOpenDoors, crew: null,
+            allowLockedDoors: false, enforceHazardTolerance: false);
+        if (hazardRoute != null)
+        {
+            for (int i = 1; i < hazardRoute.Count; i++)
+            {
+                var tile = grid[hazardRoute[i]];
+                double hazardCost = GetHazardCost(tile, crew);
+                if (!crew.Psychology.IsHazardTolerable(hazardCost, tile.IsVacuumSink, crew.CanSafelyTraverseVacuum))
+                {
+                    return Failure(
+                        CrewDiagnosticReason.HazardExceedsTolerance,
+                        goal,
+                        hazardRoute[i - 1],
+                        hazardRoute[i],
+                        tile.IsVacuumSink && !crew.CanSafelyTraverseVacuum
+                            ? "Vacuum or a breach requires a working EVA suit and oxygen supply."
+                            : $"Hazard cost {hazardCost:F1} exceeds tolerance {crew.Psychology.HazardTolerance:F1}.",
+                        physicalRouteExists: true,
+                        physicalPath: hazardRoute);
+                }
+            }
+        }
+
+        var lockedDoorRoute = FindPathCore(
+            grid, start, goal, canTraverseVacuum: true, canOpenDoors: canOpenDoors, crew: null,
+            allowLockedDoors: true, enforceHazardTolerance: false);
+        if (lockedDoorRoute != null)
+        {
+            var lockedDoorIndex = lockedDoorRoute.FindIndex(c => grid[c].Type == TileType.Door && grid[c].DoorState == DoorState.Locked);
+            if (lockedDoorIndex >= 0)
+            {
+                var lockedCoord = lockedDoorRoute[lockedDoorIndex];
+                var lastReachable = lockedDoorIndex > 0 ? lockedDoorRoute[lockedDoorIndex - 1] : start;
+                return Failure(
+                    CrewDiagnosticReason.BlockedByLockedDoor,
+                    goal,
+                    lastReachable,
+                    lockedCoord,
+                    $"Locked door at {lockedCoord} blocks the available route.");
+            }
+        }
+
+        var obstacle = FindClosestObstacle(grid, start, goal);
+        if (obstacle.BlockingTile.HasValue)
+        {
+            return Failure(
+                CrewDiagnosticReason.BlockedByObstacle,
+                goal,
+                obstacle.LastReachable,
+                obstacle.BlockingTile,
+                $"Obstacle at {obstacle.BlockingTile.Value} blocks progress toward the destination.");
+        }
+
+        return Failure(CrewDiagnosticReason.NoReachablePath, goal, obstacle.LastReachable, null, "No physically reachable route was found.");
+    }
 
     private static List<GridCoord>? FindPathCore(
         ShipGrid grid,
@@ -20,7 +96,9 @@ public static class AStarPathfinder
         GridCoord goal,
         bool canTraverseVacuum,
         bool canOpenDoors,
-        CrewMember? crew)
+        CrewMember? crew,
+        bool allowLockedDoors,
+        bool enforceHazardTolerance)
     {
         if (!grid.IsInBounds(start) || !grid.IsInBounds(goal))
             return null;
@@ -67,11 +145,17 @@ public static class AStarPathfinder
                     continue;
                 }
 
+                if (crew != null && enforceHazardTolerance &&
+                    !crew.Psychology.IsHazardTolerable(GetHazardCost(tile, crew), tile.IsVacuumSink, crew.CanSafelyTraverseVacuum))
+                {
+                    continue;
+                }
+
                 // Door check
                 double stepCost = 1.0 + GetHazardCost(tile, crew);
                 if (tile.Type == TileType.Door)
                 {
-                    if (tile.DoorState == DoorState.Locked)
+                    if (tile.DoorState == DoorState.Locked && !allowLockedDoors)
                         continue;
                     if (tile.DoorState == DoorState.Closed)
                     {
@@ -99,7 +183,102 @@ public static class AStarPathfinder
         => FindPathToAdjacentCore(grid, start, target, canTraverseVacuum, canOpenDoors, crew: null);
 
     public static List<GridCoord>? FindPathToAdjacent(ShipGrid grid, GridCoord start, GridCoord target, CrewMember crew, bool canOpenDoors = true)
-        => FindPathToAdjacentCore(grid, start, target, crew.CanSafelyTraverseVacuum, canOpenDoors, crew);
+        => FindPathToAdjacentWithDiagnostics(grid, start, target, crew, canOpenDoors).Path;
+
+    public static PathfindingResult FindPathToAdjacentWithDiagnostics(
+        ShipGrid grid,
+        GridCoord start,
+        GridCoord target,
+        CrewMember crew,
+        bool canOpenDoors = true)
+    {
+        var candidates = target.Cardinals()
+            .Where(grid.IsInBounds)
+            .Where(c => grid[c].Type is not (TileType.HullWall or TileType.InteriorWall or TileType.Asteroid))
+            .ToList();
+
+        if (candidates.Count == 0)
+            return Failure(CrewDiagnosticReason.BlockedByObstacle, target, start, target, $"No passable work tile is adjacent to {target}.");
+
+        PathfindingResult? bestFailure = null;
+        List<GridCoord>? bestPath = null;
+        double bestCost = double.PositiveInfinity;
+
+        foreach (var candidate in candidates)
+        {
+            var result = FindPathWithDiagnostics(grid, start, candidate, crew, canOpenDoors);
+            if (result.Path != null)
+            {
+                double cost = GetPathCost(grid, result.Path, crew);
+                if (cost < bestCost)
+                {
+                    bestPath = result.Path;
+                    bestCost = cost;
+                }
+                continue;
+            }
+
+            var diagnostic = result.Diagnostic with { Target = target };
+            if (bestFailure == null || DiagnosticRank(diagnostic.Reason) < DiagnosticRank(bestFailure.Diagnostic.Reason))
+                bestFailure = new PathfindingResult(null, diagnostic, result.PhysicalPath);
+        }
+
+        if (bestPath != null)
+            return Success(bestPath, target);
+        return bestFailure ?? Failure(CrewDiagnosticReason.NoReachablePath, target, start, null, "No route reaches a work tile next to the destination.");
+    }
+
+    public static PathfindingResult FindPathToNearestSafeTile(ShipGrid grid, GridCoord start, CrewMember crew)
+    {
+        PathfindingResult? bestFailure = null;
+        List<GridCoord>? bestPath = null;
+        double bestCost = double.PositiveInfinity;
+
+        for (int y = 0; y < grid.Height; y++)
+        {
+            for (int x = 0; x < grid.Width; x++)
+            {
+                var candidate = new GridCoord(x, y);
+                var tile = grid[candidate];
+                if (candidate == start || tile.Type is not (TileType.Floor or TileType.Door) ||
+                    tile.IsVacuumSink || tile.Type == TileType.Door && tile.DoorState == DoorState.Locked)
+                    continue;
+
+                double hazardCost = GetHazardCost(tile, crew);
+                if (!crew.Psychology.IsHazardTolerable(hazardCost, tile.IsVacuumSink, crew.CanSafelyTraverseVacuum))
+                    continue;
+
+                var path = FindPathCore(
+                    grid, start, candidate, crew.CanSafelyTraverseVacuum, canOpenDoors: true, crew: crew,
+                    allowLockedDoors: false, enforceHazardTolerance: true);
+                if (path == null)
+                {
+                    // In an urgent retreat, tolerate a risky corridor while keeping
+                    // hard geometry and suit requirements in force.
+                    path = FindPathCore(
+                        grid, start, candidate, crew.CanSafelyTraverseVacuum, canOpenDoors: true, crew: crew,
+                        allowLockedDoors: false, enforceHazardTolerance: false);
+                }
+
+                if (path == null)
+                {
+                    bestFailure ??= FindPathWithDiagnostics(grid, start, candidate, crew);
+                    continue;
+                }
+
+                double cost = GetPathCost(grid, path, crew);
+                if (cost < bestCost)
+                {
+                    bestPath = path;
+                    bestCost = cost;
+                }
+            }
+        }
+
+        if (bestPath != null)
+            return Success(bestPath, bestPath[^1]);
+        return bestFailure ?? Failure(CrewDiagnosticReason.NoReachablePath, start, start, null, "No safe, reachable tile is available for retreat.");
+    }
 
     private static List<GridCoord>? FindPathToAdjacentCore(
         ShipGrid grid,
@@ -126,7 +305,9 @@ public static class AStarPathfinder
         double bestPathCost = double.PositiveInfinity;
         foreach (var candidate in candidates)
         {
-            var path = FindPathCore(grid, start, candidate, canTraverseVacuum, canOpenDoors, crew);
+            var path = FindPathCore(
+                grid, start, candidate, canTraverseVacuum, canOpenDoors, crew,
+                allowLockedDoors: false, enforceHazardTolerance: crew != null);
             if (path == null) continue;
 
             double pathCost = GetPathCost(grid, path, crew);
@@ -160,7 +341,8 @@ public static class AStarPathfinder
         double conditionMultiplier = GetConditionMultiplier(crew);
         bool hasWorkingSuit = crew.IsEquippedWithSuit && crew.HasUsableOxygenSupply;
         double suitProtection = hasWorkingSuit ? 0.25 : 1.0;
-        double hazardMultiplier = roleSensitivity * conditionMultiplier * suitProtection;
+        double psychologySensitivity = crew.Psychology.HazardSensitivityMultiplier;
+        double hazardMultiplier = roleSensitivity * conditionMultiplier * suitProtection * psychologySensitivity;
 
         int steps = 0;
         double doorPenalty = 0.0;
@@ -186,6 +368,7 @@ public static class AStarPathfinder
             roleSensitivity,
             conditionMultiplier,
             suitProtection,
+            psychologySensitivity,
             hasWorkingSuit);
     }
 
@@ -197,7 +380,8 @@ public static class AStarPathfinder
         return GetBaseHazardCosts(tile).Total
             * GetRoleSensitivity(crew)
             * GetConditionMultiplier(crew)
-            * GetSuitProtection(crew);
+            * GetSuitProtection(crew)
+            * crew.Psychology.HazardSensitivityMultiplier;
     }
 
     private static PathHazardCosts GetBaseHazardCosts(ShipTile tile)
@@ -253,6 +437,88 @@ public static class AStarPathfinder
 
     private static double GetSuitProtection(CrewMember crew)
         => crew.IsEquippedWithSuit && crew.HasUsableOxygenSupply ? 0.25 : 1.0;
+
+    private static (GridCoord LastReachable, GridCoord? BlockingTile) FindClosestObstacle(
+        ShipGrid grid,
+        GridCoord start,
+        GridCoord goal)
+    {
+        var reachable = new HashSet<GridCoord> { start };
+        var queue = new Queue<GridCoord>();
+        queue.Enqueue(start);
+
+        GridCoord closest = start;
+        double closestDistance = Heuristic(start, goal);
+        GridCoord? blockingTile = null;
+        GridCoord lastReachable = start;
+        double blockingDistance = double.PositiveInfinity;
+
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+            foreach (var neighbor in current.Cardinals())
+            {
+                if (!grid.IsInBounds(neighbor))
+                    continue;
+
+                var tile = grid[neighbor];
+                bool solid = tile.Type is TileType.HullWall or TileType.InteriorWall or TileType.Asteroid;
+                if (solid && neighbor != goal)
+                {
+                    double distance = Heuristic(neighbor, goal);
+                    if (distance < blockingDistance)
+                    {
+                        blockingDistance = distance;
+                        blockingTile = neighbor;
+                        lastReachable = current;
+                    }
+                    continue;
+                }
+
+                if (tile.Type == TileType.Door && tile.DoorState == DoorState.Locked)
+                    continue;
+
+                if (!reachable.Add(neighbor))
+                    continue;
+
+                double goalDistance = Heuristic(neighbor, goal);
+                if (goalDistance < closestDistance)
+                {
+                    closest = neighbor;
+                    closestDistance = goalDistance;
+                }
+                queue.Enqueue(neighbor);
+            }
+        }
+
+        return (blockingTile.HasValue ? lastReachable : closest, blockingTile);
+    }
+
+    private static PathfindingResult Success(List<GridCoord> path, GridCoord target)
+        => new(path, new CrewDecisionDiagnostic(CrewDiagnosticReason.None, target, path[^1], null, "Route found."));
+
+    private static PathfindingResult Failure(
+        CrewDiagnosticReason reason,
+        GridCoord target,
+        GridCoord lastReachable,
+        GridCoord? blockingTile,
+        string detail,
+        bool physicalRouteExists = false,
+        List<GridCoord>? physicalPath = null)
+        => new(
+            null,
+            new CrewDecisionDiagnostic(reason, target, lastReachable, blockingTile, detail,
+                PhysicalRouteExists: physicalRouteExists),
+            physicalPath);
+
+    private static int DiagnosticRank(CrewDiagnosticReason reason) => reason switch
+    {
+        CrewDiagnosticReason.HazardExceedsTolerance => 0,
+        CrewDiagnosticReason.BlockedByLockedDoor => 1,
+        CrewDiagnosticReason.BlockedByObstacle => 2,
+        CrewDiagnosticReason.NoReachablePath => 3,
+        _ => 4
+    };
 
     private static double Heuristic(GridCoord a, GridCoord b)
     {
