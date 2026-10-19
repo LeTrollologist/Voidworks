@@ -184,4 +184,4 @@ When submitting a change:
 
 ## License
 
-The project's license should be specified here once selected. Until a license is added to the repository, do not assume that the source is available for unrestricted reuse.
+The project's license will be specified here once selected. Until a license is added to the repository, do not assume that the source is available for unrestricted reuse.
