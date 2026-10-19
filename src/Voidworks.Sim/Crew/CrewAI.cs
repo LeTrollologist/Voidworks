@@ -115,6 +115,7 @@ public sealed class CrewAI
                 jobManager.ReleaseJob(CurrentJob);
                 CurrentJob = null;
             }
+            jobManager.ReleaseJobsAssignedTo(Crew.Id);
             return;
         }
 
@@ -126,6 +127,7 @@ public sealed class CrewAI
                 jobManager.ReleaseJob(CurrentJob);
                 CurrentJob = null;
             }
+            jobManager.ReleaseJobsAssignedTo(Crew.Id);
             return;
         }
 
@@ -504,7 +506,7 @@ public sealed class CrewAI
         {
             RecordNavigationFailure(routeResult, item.Position, jobManager);
             item.ReservedByCrewId = null;
-            jobManager.ReleaseJob(CurrentJob);
+            jobManager.ReleaseJobForRetry(CurrentJob, Crew.Id);
             CurrentJob = null;
             return;
         }
@@ -553,7 +555,7 @@ public sealed class CrewAI
             if (oreRouteResult.Path == null || oreRouteResult.Path.Count <= 1)
             {
                 RecordNavigationFailure(oreRouteResult, ore.Position, jobManager);
-                jobManager.ReleaseJob(job);
+                jobManager.ReleaseJobForRetry(job, Crew.Id);
                 CurrentJob = null;
                 return;
             }
@@ -582,7 +584,7 @@ public sealed class CrewAI
         if (smelterRouteResult.Path == null || smelterRouteResult.Path.Count <= 1)
         {
             RecordNavigationFailure(smelterRouteResult, job.TargetCoord, jobManager);
-            jobManager.ReleaseJob(job);
+            jobManager.ReleaseJobForRetry(job, Crew.Id);
             CurrentJob = null;
             return;
         }
@@ -658,7 +660,7 @@ public sealed class CrewAI
         if (routeResult.Path == null || routeResult.Path.Count <= 1)
         {
             RecordNavigationFailure(routeResult, breachCoord, jobManager);
-            jobManager.ReleaseJob(CurrentJob);
+            jobManager.ReleaseJobForRetry(CurrentJob, Crew.Id);
             CurrentJob = null;
             CurrentActivity = "Cannot reach breach";
             return;

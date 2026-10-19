@@ -544,6 +544,37 @@ public class SystemicFailuresAndScenariosTests
     }
 
     [Fact]
+    public void Scenario_CrewAssistance_RequestsHelpOpensBulkheadAndRetrievesTool()
+    {
+        var grid = new ShipGrid(20, 9);
+        grid.BuildRoom(1, 1, 18, 7, TileType.HullWall);
+        var engineer = new CrewMember("Miller", new GridCoord(4, 4), "Engineer");
+        var helper = new CrewMember("Chen", new GridCoord(5, 4), "Botanist");
+        var sim = new SimulationState(grid, new AtmosphereSolver(), new JobManager());
+        sim.Crew.Add(new CrewAI(engineer));
+        sim.Crew.Add(new CrewAI(helper));
+
+        var scenario = ScenarioCatalog.CreateById("crew-assistance");
+        Assert.NotNull(scenario);
+        scenario.Setup(sim);
+        sim.ActiveScenario = scenario;
+
+        var door = new GridCoord(grid.Width / 3, grid.Height / 2);
+        Assert.Equal(DoorState.Locked, grid[door].DoorState);
+        Assert.Equal(2, sim.Crew.Count);
+
+        for (int tick = 0; tick < 900 && !scenario.IsCompleted && !scenario.IsFailed; tick++)
+            sim.Step(SimulationState.FixedTickDt);
+
+        Assert.True(scenario.IsCompleted, scenario.FailureReason ??
+            $"Scenario did not complete. Engineer: {sim.Crew[0].CurrentActivity}; helper: {sim.Crew[1].CurrentActivity}.");
+        Assert.All(scenario.Objectives, objective => Assert.True(objective.IsCompleted, objective.Title));
+        Assert.Equal(DoorState.Open, grid[door].DoorState);
+        Assert.Contains(engineer.Inventory, item => item.Type == ItemType.WeldingTorch &&
+            item.Position == new GridCoord(door.X + 2, door.Y));
+    }
+
+    [Fact]
     public void Scenario_TheDerelictCrisis_EvaluatesWinAndLossConditions()
     {
         var grid = new ShipGrid(20, 9);

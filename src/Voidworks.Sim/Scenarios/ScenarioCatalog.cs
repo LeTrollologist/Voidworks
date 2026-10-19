@@ -189,11 +189,98 @@ public static class ScenarioCatalog
         return s;
     }
 
+    public static Scenario CreateCrewAssistance()
+    {
+        static GridCoord DoorCoord(ShipGrid grid) => new(grid.Width / 3, grid.Height / 2);
+        static GridCoord ToolCoord(ShipGrid grid)
+        {
+            var door = DoorCoord(grid);
+            return new GridCoord(door.X + 2, door.Y);
+        }
+
+        var scenario = new Scenario(
+            "crew-assistance",
+            "Crew Assistance",
+            "A locked bulkhead blocks an engineer from retrieving a repair torch. After repeated failed attempts, a sociable crewmate can answer the request, open the route, and let the engineer recover the tool.",
+            timeLimitSeconds: 90.0);
+
+        scenario.SetupAction = sim =>
+        {
+            if (sim.Grid.Width < 12 || sim.Grid.Height < 5)
+                throw new InvalidOperationException("The crew assistance scenario requires a ship grid at least 12 by 5 tiles.");
+
+            var requester = sim.Crew.FirstOrDefault(ai =>
+                string.Equals(ai.Crew.Role, "Engineer", StringComparison.OrdinalIgnoreCase))
+                ?? sim.Crew.FirstOrDefault();
+            if (requester == null)
+                throw new InvalidOperationException("The crew assistance scenario requires at least two crew members.");
+
+            var helper = sim.Crew.FirstOrDefault(ai => ai != requester);
+            if (helper == null)
+                throw new InvalidOperationException("The crew assistance scenario requires at least two crew members.");
+
+            requester.Crew.Role = "Engineer";
+            sim.Crew.Clear();
+            sim.Crew.Add(requester);
+            sim.Crew.Add(helper);
+
+            var door = DoorCoord(sim.Grid);
+            var tool = ToolCoord(sim.Grid);
+            requester.Crew.Position = new GridCoord(door.X - 2, door.Y);
+            requester.Crew.MoveSpeed = 2.5;
+            helper.Crew.Position = new GridCoord(door.X - 1, door.Y);
+            helper.Crew.MoveSpeed = 2.5;
+
+            requester.Crew.Psychology.Restore(
+                courage: 50.0, discipline: 55.0, selfPreservation: 65.0, determination: 50.0,
+                sociability: 40.0, motivation: 55.0, fear: 0.0, stress: 0.0, anger: 0.0, morale: 70.0);
+            helper.Crew.Psychology.Restore(
+                courage: 70.0, discipline: 85.0, selfPreservation: 35.0, determination: 70.0,
+                sociability: 95.0, motivation: 75.0, fear: 0.0, stress: 0.0, anger: 0.0, morale: 80.0);
+
+            for (int y = 1; y < sim.Grid.Height - 1; y++)
+                sim.Grid[door.X, y].Type = TileType.InteriorWall;
+            sim.Grid.PlaceDoor(door.X, door.Y, DoorState.Locked);
+
+            foreach (var job in sim.JobManager.ActiveJobs.ToList())
+                sim.JobManager.CancelJob(job);
+            foreach (var item in sim.JobManager.WorldItems.Where(item => item.Type == ItemType.WeldingTorch).ToList())
+                sim.JobManager.RemoveItem(item);
+
+            var repairTorch = new Item(ItemType.WeldingTorch, tool);
+            sim.JobManager.AddItem(repairTorch);
+            sim.JobManager.PostJob(Job.CreateFetchItem(repairTorch, priority: 80));
+        };
+
+        scenario.Objectives.Add(new ScenarioObjective(
+            "request-assistance",
+            "Request Assistance",
+            "The engineer must reach the locked bulkhead several times and request help.",
+            sim => sim.Crew.Any(ai => ai.IsRequestingAssistance) || sim.JobManager.AssistanceJobs.Any()));
+
+        scenario.Objectives.Add(new ScenarioObjective(
+            "open-bulkhead",
+            "Open the Locked Bulkhead",
+            "A helper must respond and open the locked route.",
+            sim => sim.Grid[DoorCoord(sim.Grid)].DoorState == DoorState.Open &&
+                sim.Crew.Any(ai => ai.CurrentActivity.Contains("opened the locked door", StringComparison.OrdinalIgnoreCase))));
+
+        scenario.Objectives.Add(new ScenarioObjective(
+            "retrieve-repair-torch",
+            "Retrieve the Repair Torch",
+            "The engineer must reach the far side and collect the welding torch.",
+            sim => sim.Crew.Any(ai => string.Equals(ai.Crew.Role, "Engineer", StringComparison.OrdinalIgnoreCase) &&
+                ai.Crew.Inventory.Any(item => item.Type == ItemType.WeldingTorch && item.Position == ToolCoord(sim.Grid)))));
+
+        return scenario;
+    }
+
     public static Scenario? CreateById(string id) => id.ToLowerInvariant() switch
     {
         "derelict-crisis" => CreateTheDerelictCrisis(),
         "asteroid-expedition" => CreateAsteroidExpedition(),
         "hull-breach" => CreateHullBreachEmergency(),
+        "crew-assistance" => CreateCrewAssistance(),
         _ => null
     };
 }

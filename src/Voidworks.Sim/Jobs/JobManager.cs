@@ -76,9 +76,14 @@ public sealed class JobManager
 
         var sourceTask = _jobs.FirstOrDefault(job => job.Id == assistanceJob.SourceTaskJobId.Value &&
             job.Type != JobType.AssistCrew && !job.IsCompleted && !job.IsCancelled);
+        bool assignedToAnotherCrew = sourceTask?.AssignedCrewId.HasValue == true &&
+            sourceTask.AssignedCrewId != helper.Id &&
+            sourceTask.AssignedCrewId != assistanceJob.TargetCrewId;
+        bool itemReservedByAnotherCrew = sourceTask?.TargetItem?.ReservedByCrewId.HasValue == true &&
+            sourceTask.TargetItem.ReservedByCrewId != helper.Id &&
+            (sourceTask.TargetItem.ReservedByCrewId != assistanceJob.TargetCrewId || sourceTask.TargetItem.IsCarried);
         if (sourceTask == null ||
-            (sourceTask.AssignedCrewId.HasValue && sourceTask.AssignedCrewId != helper.Id) ||
-            (sourceTask.TargetItem?.ReservedByCrewId.HasValue == true && sourceTask.TargetItem.ReservedByCrewId != helper.Id))
+            assignedToAnotherCrew || itemReservedByAnotherCrew)
             return null;
 
         sourceTask.AssignedCrewId = helper.Id;
@@ -154,6 +159,22 @@ public sealed class JobManager
         if (previousAssignee.HasValue && job.TargetItem?.ReservedByCrewId == previousAssignee &&
             job.TargetItem.IsCarried == false)
             job.TargetItem.ReservedByCrewId = null;
+    }
+
+    public void ReleaseJobForRetry(Job job, Guid retryingCrewId)
+    {
+        if (job.IsCompleted || job.IsCancelled)
+            return;
+
+        job.AssignedCrewId = retryingCrewId;
+        if (job.TargetItem?.ReservedByCrewId == retryingCrewId && !job.TargetItem.IsCarried)
+            job.TargetItem.ReservedByCrewId = null;
+    }
+
+    public void ReleaseJobsAssignedTo(Guid crewId)
+    {
+        foreach (var job in _jobs.Where(job => job.AssignedCrewId == crewId).ToList())
+            ReleaseJob(job);
     }
 
     private static bool CanAssist(Job request, CrewMember helper)

@@ -96,10 +96,22 @@ Run the graphical application:
 dotnet run --project src/Voidworks.Game/Voidworks.Game.csproj
 ```
 
+Launch the crew assistance scenario in the graphical application:
+
+```powershell
+dotnet run --project src/Voidworks.Game/Voidworks.Game.csproj -- --scenario crew-assistance
+```
+
 Run the headless simulation:
 
 ```powershell
 dotnet run --project src/Voidworks.Game/Voidworks.Game.csproj -- --headless
+```
+
+Run the crew assistance scenario without opening a window:
+
+```powershell
+dotnet run --project src/Voidworks.Game/Voidworks.Game.csproj -- --headless --scenario crew-assistance
 ```
 
 Run the automated tests:
@@ -138,7 +150,7 @@ These loops create dependencies rather than isolated features. A broken coolant 
 
 ## Testing
 
-The automated test suite covers simulation systems including atmosphere exchange, hull breaches, crew survival and psychology, route diagnostics, autonomous breach repair, assistance requests and responses, and save/load behavior.
+The automated test suite covers simulation systems including atmosphere exchange, hull breaches, crew survival and psychology, route diagnostics, autonomous breach repair, the end-to-end Crew Assistance scenario, assistance requests and responses, and save/load behavior.
 
 Run the test suite locally:
 
