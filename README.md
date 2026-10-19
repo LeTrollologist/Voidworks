@@ -79,7 +79,7 @@ The project uses C# and .NET, with BRUTAL packages for low-level engine function
 Clone the repository and enter its directory:
 
 ```powershell
-git clone <repository-url>
+git clone https://github.com/LeTrollologist/Voidworks.git
 cd Voidworks
 ```
 
@@ -107,8 +107,6 @@ Run the automated tests:
 ```powershell
 dotnet test
 ```
-
-> **Note:** Replace `<repository-url>` with the actual clone URL. Depending on how command-line arguments are configured in the current build, the headless invocation may use `--headless` without the extra `--` separator. Use the form supported by the executable's argument parser.
 
 ## Current simulation loop
 
