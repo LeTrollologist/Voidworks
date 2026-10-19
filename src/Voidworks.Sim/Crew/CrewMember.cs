@@ -18,9 +18,24 @@ public sealed class CrewMember
     public bool IsEquippedWithSuit { get; set; }
     public Item? EquippedOxygenTank { get; set; }
     public List<Item> Inventory { get; } = new();
+    public bool HasUsableOxygenSupply => EquippedOxygenTank is { StoredOxygenMoles: > 0.05 };
+    public bool CanSafelyTraverseVacuum => IsEquippedWithSuit && HasUsableOxygenSupply;
 
     // Movement speed: tiles per second (2.0 tiles/s default)
     public double MoveSpeed { get; set; } = 2.0;
+    public double EffectiveMoveSpeed
+    {
+        get
+        {
+            var physiology = Physiology;
+            double conditionPenalty = 0.5 * Math.Clamp(physiology.Fatigue / 100.0, 0.0, 1.0)
+                + 0.25 * Math.Clamp((100.0 - physiology.Health) / 100.0, 0.0, 1.0)
+                + 0.25 * Math.Clamp((100.0 - physiology.OxygenSaturation) / 100.0, 0.0, 1.0)
+                + 0.1 * Math.Clamp(physiology.Thirst / 100.0, 0.0, 1.0)
+                + 0.1 * Math.Clamp(physiology.Hunger / 100.0, 0.0, 1.0);
+            return Math.Max(0.1, MoveSpeed * (1.0 - Math.Min(0.8, conditionPenalty)));
+        }
+    }
 
     public CrewMember(string name, GridCoord initialPosition, string role = "Generalist")
     {
@@ -63,6 +78,16 @@ public sealed class CrewMember
         Inventory.Remove(tank);
 
         IsEquippedWithSuit = true;
+        EquippedOxygenTank = tank;
+        return true;
+    }
+
+    public bool EquipReplacementOxygenTank(Item tank)
+    {
+        if (!IsEquippedWithSuit || tank.Type != ItemType.OxygenTank || !Inventory.Contains(tank))
+            return false;
+
+        Inventory.Remove(tank);
         EquippedOxygenTank = tank;
         return true;
     }

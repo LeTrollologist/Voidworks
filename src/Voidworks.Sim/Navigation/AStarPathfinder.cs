@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Voidworks.Sim.Crew;
 using Voidworks.Sim.Ship;
 
 namespace Voidworks.Sim.Navigation;
@@ -8,6 +9,18 @@ namespace Voidworks.Sim.Navigation;
 public static class AStarPathfinder
 {
     public static List<GridCoord>? FindPath(ShipGrid grid, GridCoord start, GridCoord goal, bool canTraverseVacuum = false, bool canOpenDoors = true)
+        => FindPathCore(grid, start, goal, canTraverseVacuum, canOpenDoors, crew: null);
+
+    public static List<GridCoord>? FindPath(ShipGrid grid, GridCoord start, GridCoord goal, CrewMember crew, bool canOpenDoors = true)
+        => FindPathCore(grid, start, goal, crew.CanSafelyTraverseVacuum, canOpenDoors, crew);
+
+    private static List<GridCoord>? FindPathCore(
+        ShipGrid grid,
+        GridCoord start,
+        GridCoord goal,
+        bool canTraverseVacuum,
+        bool canOpenDoors,
+        CrewMember? crew)
     {
         if (!grid.IsInBounds(start) || !grid.IsInBounds(goal))
             return null;
@@ -55,7 +68,7 @@ public static class AStarPathfinder
                 }
 
                 // Door check
-                double stepCost = 1.0;
+                double stepCost = 1.0 + GetHazardCost(tile, crew);
                 if (tile.Type == TileType.Door)
                 {
                     if (tile.DoorState == DoorState.Locked)
@@ -63,7 +76,7 @@ public static class AStarPathfinder
                     if (tile.DoorState == DoorState.Closed)
                     {
                         if (!canOpenDoors) continue;
-                        stepCost = 2.5; // slight cost penalty to simulate opening door
+                        stepCost += 1.5; // slight cost penalty to simulate opening door
                     }
                 }
 
@@ -83,6 +96,18 @@ public static class AStarPathfinder
     }
 
     public static List<GridCoord>? FindPathToAdjacent(ShipGrid grid, GridCoord start, GridCoord target, bool canTraverseVacuum = false, bool canOpenDoors = true)
+        => FindPathToAdjacentCore(grid, start, target, canTraverseVacuum, canOpenDoors, crew: null);
+
+    public static List<GridCoord>? FindPathToAdjacent(ShipGrid grid, GridCoord start, GridCoord target, CrewMember crew, bool canOpenDoors = true)
+        => FindPathToAdjacentCore(grid, start, target, crew.CanSafelyTraverseVacuum, canOpenDoors, crew);
+
+    private static List<GridCoord>? FindPathToAdjacentCore(
+        ShipGrid grid,
+        GridCoord start,
+        GridCoord target,
+        bool canTraverseVacuum,
+        bool canOpenDoors,
+        CrewMember? crew)
     {
         // Find best path to any passable neighbor adjacent to target
         var candidates = target.Cardinals()
@@ -95,16 +120,91 @@ public static class AStarPathfinder
                 if (t.Type == TileType.Door && t.DoorState == DoorState.Locked) return false;
                 return true;
             })
-            .OrderBy(c => Heuristic(start, c))
             .ToList();
 
+        List<GridCoord>? bestPath = null;
+        double bestPathCost = double.PositiveInfinity;
         foreach (var candidate in candidates)
         {
-            var path = FindPath(grid, start, candidate, canTraverseVacuum, canOpenDoors);
-            if (path != null) return path;
+            var path = FindPathCore(grid, start, candidate, canTraverseVacuum, canOpenDoors, crew);
+            if (path == null) continue;
+
+            double pathCost = GetPathCost(grid, path, crew);
+            if (pathCost < bestPathCost)
+            {
+                bestPath = path;
+                bestPathCost = pathCost;
+            }
         }
 
-        return null;
+        return bestPath;
+    }
+
+    private static double GetPathCost(ShipGrid grid, List<GridCoord> path, CrewMember? crew)
+    {
+        double cost = 0.0;
+        for (int i = 1; i < path.Count; i++)
+        {
+            var tile = grid[path[i]];
+            cost += 1.0 + GetHazardCost(tile, crew);
+            if (tile.Type == TileType.Door && tile.DoorState == DoorState.Closed)
+                cost += 1.5;
+        }
+
+        return cost;
+    }
+
+    private static double GetHazardCost(ShipTile tile, CrewMember? crew)
+    {
+        if (crew == null)
+            return 0.0;
+
+        var atmosphere = tile.Atmosphere;
+        double totalMoles = atmosphere.TotalMoles;
+        double oxygenPartialPressure = totalMoles > 0.0
+            ? atmosphere.PressureKPa * atmosphere.Oxygen / totalMoles
+            : 0.0;
+        double toxicFraction = totalMoles > 0.0 ? atmosphere.ToxicGas / totalMoles : 0.0;
+        double co2Fraction = totalMoles > 0.0 ? atmosphere.CarbonDioxide / totalMoles : 0.0;
+
+        double hazard = 0.0;
+        if (tile.IsVacuumSink)
+            hazard += 30.0;
+        else
+            hazard += Math.Max(0.0, 70.0 - atmosphere.PressureKPa) * 0.15;
+
+        hazard += Math.Max(0.0, 16.0 - oxygenPartialPressure) * 0.5;
+        hazard += Math.Max(0.0, toxicFraction - 0.005) * 100.0;
+        hazard += Math.Max(0.0, co2Fraction - 0.05) * 40.0;
+
+        if (atmosphere.TemperatureK < 260.0)
+            hazard += (260.0 - atmosphere.TemperatureK) * 0.05;
+        else if (atmosphere.TemperatureK > 330.0)
+            hazard += (atmosphere.TemperatureK - 330.0) * 0.05;
+
+        if (hazard <= 0.0)
+            return 0.0;
+
+        double roleSensitivity = crew.Role.Trim().ToLowerInvariant() switch
+        {
+            "engineer" => 0.45,
+            "pilot" => 0.75,
+            "medic" => 1.3,
+            "botanist" => 1.25,
+            _ => 1.0
+        };
+
+        var physiology = crew.Physiology;
+        double physiologyMultiplier = 1.0
+            + Math.Max(0.0, 100.0 - physiology.Health) * 0.025
+            + Math.Max(0.0, 100.0 - physiology.OxygenSaturation) * 0.02
+            + Math.Max(0.0, physiology.Fatigue) * 0.012
+            + Math.Max(0.0, physiology.Thirst) * 0.007
+            + Math.Max(0.0, physiology.Hunger) * 0.004;
+
+        bool hasWorkingSuit = crew.IsEquippedWithSuit && crew.HasUsableOxygenSupply;
+        double suitProtection = hasWorkingSuit ? 0.25 : 1.0;
+        return hazard * roleSensitivity * physiologyMultiplier * suitProtection;
     }
 
     private static double Heuristic(GridCoord a, GridCoord b)

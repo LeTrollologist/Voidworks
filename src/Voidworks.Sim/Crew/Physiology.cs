@@ -61,6 +61,16 @@ public sealed class Physiology
             }
         }
 
+        // A sealed EVA suit protects against contaminated atmosphere. Without one,
+        // concentrated toxic gas causes progressive hypoxia and tissue damage.
+        if (!crew.IsEquippedWithSuit && currentTile.Atmosphere.TotalMoles > 0.0)
+        {
+            double toxicFraction = currentTile.Atmosphere.ToxicGas / currentTile.Atmosphere.TotalMoles;
+            double toxicExposure = Math.Max(0.0, toxicFraction - 0.01);
+            OxygenSaturation = Math.Max(0.0, OxygenSaturation - (toxicExposure * 15.0 * dt));
+            Health = Math.Max(0.0, Health - (toxicExposure * 8.0 * dt));
+        }
+
         // 3. Vacuum decompression damage if unsuited in vacuum
         if (!crew.IsEquippedWithSuit && (currentTile.IsVacuumSink || currentTile.Atmosphere.PressureKPa < 20.0))
         {

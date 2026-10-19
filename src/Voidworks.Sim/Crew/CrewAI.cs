@@ -96,8 +96,25 @@ public sealed class CrewAI
         // 2. Advance active movement along path
         if (_currentPath != null && _currentPath.Count > 0)
         {
-            // Exhaustion penalty: if fatigue is 100%, speed is halved
-            double effectiveSpeed = Crew.Physiology.Fatigue >= 100.0 ? Crew.MoveSpeed * 0.5 : Crew.MoveSpeed;
+            // Replan against current atmosphere every tick so a spreading hazard
+            // cannot leave the crew committed to an obsolete, unsafe route.
+            GridCoord routeGoal = _currentPath[^1];
+            var refreshedPath = AStarPathfinder.FindPath(grid, Crew.Position, routeGoal, Crew);
+            if (refreshedPath == null || refreshedPath.Count <= 1)
+            {
+                _currentPath = null;
+                _moveAccumulator = 0.0;
+            }
+            else
+            {
+                refreshedPath.RemoveAt(0);
+                _currentPath = refreshedPath;
+            }
+        }
+
+        if (_currentPath != null && _currentPath.Count > 0)
+        {
+            double effectiveSpeed = Crew.EffectiveMoveSpeed;
             _moveAccumulator += dt * effectiveSpeed;
 
             while (_moveAccumulator >= 1.0 && _currentPath.Count > 0)
@@ -223,48 +240,50 @@ public sealed class CrewAI
     {
         _subJobs.Clear();
 
-        // Precondition 1: EVA Suit & Oxygen Tank protection
-        if (!Crew.IsEquippedWithSuit)
-        {
-            var suit = jobManager.FindAvailableItem(ItemType.EvaSuit, Crew.Position, Crew.Id);
-            var tank = jobManager.FindAvailableItem(ItemType.OxygenTank, Crew.Position, Crew.Id);
+        // Check every prerequisite before reserving anything, so a partial kit
+        // cannot strand items when one required component is missing.
+        Item? suit = Crew.IsEquippedWithSuit
+            ? null
+            : Crew.GetItem(ItemType.EvaSuit) ?? jobManager.FindAvailableItem(ItemType.EvaSuit, Crew.Position, Crew.Id);
+        Item? oxygenTank = Crew.HasUsableOxygenSupply
+            ? null
+            : Crew.Inventory.FirstOrDefault(item => item.Type == ItemType.OxygenTank && item.StoredOxygenMoles > 0.05)
+              ?? jobManager.WorldItems
+                  .Where(item => item.Type == ItemType.OxygenTank && item.StoredOxygenMoles > 0.05 &&
+                                 (item.IsAvailable || item.ReservedByCrewId == Crew.Id))
+                  .OrderBy(item => Math.Abs(item.Position.X - Crew.Position.X) + Math.Abs(item.Position.Y - Crew.Position.Y))
+                  .FirstOrDefault();
+        Item? torch = Crew.HasItem(ItemType.WeldingTorch)
+            ? null
+            : jobManager.FindAvailableItem(ItemType.WeldingTorch, Crew.Position, Crew.Id);
+        Item? plate = Crew.HasItem(ItemType.SteelPlate)
+            ? null
+            : jobManager.FindAvailableItem(ItemType.SteelPlate, Crew.Position, Crew.Id);
 
-            if (suit == null || tank == null)
-                return false;
+        if ((!Crew.IsEquippedWithSuit && suit == null) ||
+            (!Crew.HasUsableOxygenSupply && oxygenTank == null) ||
+            (!Crew.HasItem(ItemType.WeldingTorch) && torch == null) ||
+            (!Crew.HasItem(ItemType.SteelPlate) && plate == null))
+            return false;
 
-            suit.ReservedByCrewId = Crew.Id;
-            tank.ReservedByCrewId = Crew.Id;
-
-            _subJobs.Enqueue(Job.CreateFetchItem(suit, priority: 110));
-            _subJobs.Enqueue(Job.CreateFetchItem(tank, priority: 110));
+        QueueRequiredItem(suit, 110);
+        QueueRequiredItem(oxygenTank, 110);
+        if (suit != null || oxygenTank != null)
             _subJobs.Enqueue(new Job(JobType.EquipSuit, Crew.Position, priority: 110, workSeconds: 0.5, "Equip EVA Suit"));
-        }
 
-        // Precondition 2: Welding Torch
-        if (!Crew.HasItem(ItemType.WeldingTorch))
-        {
-            var torch = jobManager.FindAvailableItem(ItemType.WeldingTorch, Crew.Position, Crew.Id);
-            if (torch == null)
-                return false;
-
-            torch.ReservedByCrewId = Crew.Id;
-            _subJobs.Enqueue(Job.CreateFetchItem(torch, priority: 105));
-        }
-
-        // Precondition 3: Steel Plate (patch material)
-        if (!Crew.HasItem(ItemType.SteelPlate))
-        {
-            var plate = jobManager.FindAvailableItem(ItemType.SteelPlate, Crew.Position, Crew.Id);
-            if (plate == null)
-                return false;
-
-            plate.ReservedByCrewId = Crew.Id;
-            _subJobs.Enqueue(Job.CreateFetchItem(plate, priority: 105));
-        }
+        QueueRequiredItem(torch, 105);
+        QueueRequiredItem(plate, 105);
 
         // Final action: The breach repair itself
         _subJobs.Enqueue(breachJob);
         return true;
+
+        void QueueRequiredItem(Item? item, int priority)
+        {
+            if (item == null || Crew.Inventory.Contains(item)) return;
+            item.ReservedByCrewId = Crew.Id;
+            _subJobs.Enqueue(Job.CreateFetchItem(item, priority));
+        }
     }
 
     private void ExecuteCurrentJob(ShipGrid grid, JobManager jobManager, double dt)
@@ -325,7 +344,7 @@ public sealed class CrewAI
             return;
         }
 
-        var path = AStarPathfinder.FindPath(grid, Crew.Position, item.Position, Crew.IsEquippedWithSuit);
+        var path = AStarPathfinder.FindPath(grid, Crew.Position, item.Position, Crew);
         if (path == null || path.Count <= 1)
         {
             item.ReservedByCrewId = null;
@@ -371,7 +390,7 @@ public sealed class CrewAI
                 return;
             }
 
-            var pathToOre = AStarPathfinder.FindPath(grid, Crew.Position, ore.Position, Crew.IsEquippedWithSuit);
+            var pathToOre = AStarPathfinder.FindPath(grid, Crew.Position, ore.Position, Crew);
             if (pathToOre == null || pathToOre.Count <= 1)
             {
                 jobManager.ReleaseJob(job);
@@ -397,7 +416,7 @@ public sealed class CrewAI
             return;
         }
 
-        var pathToSmelter = AStarPathfinder.FindPath(grid, Crew.Position, job.TargetCoord, Crew.IsEquippedWithSuit);
+        var pathToSmelter = AStarPathfinder.FindPath(grid, Crew.Position, job.TargetCoord, Crew);
         if (pathToSmelter == null || pathToSmelter.Count <= 1)
         {
             jobManager.ReleaseJob(job);
@@ -413,12 +432,16 @@ public sealed class CrewAI
     private void ExecuteEquipSuit()
     {
         var suit = Crew.GetItem(ItemType.EvaSuit);
-        var tank = Crew.GetItem(ItemType.OxygenTank);
+        var tank = Crew.Inventory.FirstOrDefault(item => item.Type == ItemType.OxygenTank && item.StoredOxygenMoles > 0.05);
 
-        if (suit != null && tank != null)
+        if (tank != null && suit != null)
         {
             Crew.EquipSuit(suit, tank);
             CurrentActivity = "Equipped EVA Suit and Oxygen Tank";
+        }
+        else if (tank != null && Crew.IsEquippedWithSuit && Crew.EquipReplacementOxygenTank(tank))
+        {
+            CurrentActivity = "Replaced depleted EVA oxygen tank";
         }
 
         CurrentJob = null;
@@ -431,6 +454,20 @@ public sealed class CrewAI
 
         if (dist <= 1)
         {
+            if (!Crew.IsEquippedWithSuit || !Crew.HasUsableOxygenSupply ||
+                !Crew.HasItem(ItemType.WeldingTorch) || !Crew.HasItem(ItemType.SteelPlate))
+            {
+                if (PlanBreachRepairPrerequisites(grid, jobManager, CurrentJob!))
+                    CurrentJob = _subJobs.Dequeue();
+                else
+                {
+                    jobManager.ReleaseJob(CurrentJob!);
+                    CurrentJob = null;
+                    CurrentActivity = "Breach repair paused: required gear or oxygen unavailable";
+                }
+                return;
+            }
+
             CurrentActivity = $"Welding breach at {breachCoord}...";
             CurrentJob.WorkRemainingSeconds -= dt;
 
@@ -452,7 +489,7 @@ public sealed class CrewAI
             return;
         }
 
-        var path = AStarPathfinder.FindPathToAdjacent(grid, Crew.Position, breachCoord, Crew.IsEquippedWithSuit);
+        var path = AStarPathfinder.FindPathToAdjacent(grid, Crew.Position, breachCoord, Crew);
         if (path == null || path.Count <= 1)
         {
             jobManager.ReleaseJob(CurrentJob);
@@ -526,7 +563,7 @@ public sealed class CrewAI
             return;
         }
 
-        var path = AStarPathfinder.FindPath(grid, Crew.Position, bunkCoord, Crew.IsEquippedWithSuit);
+        var path = AStarPathfinder.FindPath(grid, Crew.Position, bunkCoord, Crew);
         if (path == null || path.Count <= 1)
         {
             CurrentJob = null;

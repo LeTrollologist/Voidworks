@@ -3,6 +3,7 @@ using Voidworks.Sim.Atmosphere;
 using Voidworks.Sim.Crew;
 using Voidworks.Sim.Items;
 using Voidworks.Sim.Jobs;
+using Voidworks.Sim.Navigation;
 using Voidworks.Sim.Ship;
 using Xunit;
 
@@ -10,6 +11,89 @@ namespace Voidworks.Tests;
 
 public class CrewScenarioTests
 {
+    [Fact]
+    public void CrewPathfinding_WeightsHazardsByRoleAndPhysiology()
+    {
+        var grid = new ShipGrid(8, 6);
+        grid.BuildRoom(0, 0, 7, 5, TileType.HullWall);
+        GridCoord start = new(1, 2);
+        GridCoord goal = new(6, 2);
+        var toxicTile = grid[3, 2];
+        toxicTile.Atmosphere.ToxicGas = toxicTile.Atmosphere.TotalMoles * 0.03 / 0.97;
+
+        var engineer = new CrewMember("Engineer", start, "Engineer");
+        var botanist = new CrewMember("Botanist", start, "Botanist");
+        var injuredEngineer = new CrewMember("Injured Engineer", start, "Engineer");
+        injuredEngineer.Physiology.Health = 25.0;
+
+        var engineerPath = AStarPathfinder.FindPath(grid, start, goal, engineer);
+        var botanistPath = AStarPathfinder.FindPath(grid, start, goal, botanist);
+        var injuredPath = AStarPathfinder.FindPath(grid, start, goal, injuredEngineer);
+
+        Assert.NotNull(engineerPath);
+        Assert.Contains(toxicTile.Coord, engineerPath);
+        Assert.NotNull(botanistPath);
+        Assert.DoesNotContain(toxicTile.Coord, botanistPath);
+        Assert.NotNull(injuredPath);
+        Assert.DoesNotContain(toxicTile.Coord, injuredPath);
+    }
+
+    [Fact]
+    public void CrewAI_ReplansRouteWhenAtmosphereTurnsToxic()
+    {
+        var grid = new ShipGrid(8, 6);
+        grid.BuildRoom(0, 0, 7, 5, TileType.HullWall);
+        var crew = new CrewMember("Crew", new GridCoord(1, 2)) { MoveSpeed = 1.0 };
+        crew.Physiology.Hunger = 70.0;
+        var food = new Item(ItemType.FoodRation, new GridCoord(6, 2));
+        var jobs = new JobManager();
+        jobs.AddItem(food);
+        var ai = new CrewAI(crew);
+
+        ai.Tick(grid, jobs, 0.1); // Claims the food-fetch subtask.
+        ai.Tick(grid, jobs, 0.1); // Plans the direct route while the corridor is safe.
+        Assert.Contains(new GridCoord(3, 2), ai.CurrentPath);
+
+        var corridor = grid[3, 2].Atmosphere;
+        corridor.ToxicGas = corridor.TotalMoles * 0.05 / 0.95;
+        ai.Tick(grid, jobs, 0.1);
+
+        Assert.DoesNotContain(new GridCoord(3, 2), ai.CurrentPath);
+        Assert.Equal(new GridCoord(1, 2), crew.Position);
+    }
+
+    [Fact]
+    public void BreachRepair_ReplacesDepletedOxygenTankBeforeStartingWork()
+    {
+        var grid = new ShipGrid(8, 6);
+        grid.BuildRoom(0, 0, 7, 5, TileType.HullWall);
+        var breachCoord = new GridCoord(7, 2);
+        grid.BreachTile(breachCoord.X, breachCoord.Y);
+
+        var crew = new CrewMember("Engineer", new GridCoord(6, 2), "Engineer")
+        {
+            IsEquippedWithSuit = true,
+            EquippedOxygenTank = new Item(ItemType.OxygenTank, new GridCoord(6, 2))
+        };
+        crew.EquippedOxygenTank.StoredOxygenMoles = 0.0;
+        crew.PickUp(new Item(ItemType.WeldingTorch, crew.Position));
+        crew.PickUp(new Item(ItemType.SteelPlate, crew.Position));
+
+        var replacementTank = new Item(ItemType.OxygenTank, crew.Position);
+        var jobs = new JobManager();
+        jobs.AddItem(replacementTank);
+        jobs.ScanWorldForEmergencies(grid);
+        var ai = new CrewAI(crew);
+
+        for (int tick = 0; tick < 50 && grid[breachCoord].IsBreached; tick++)
+            ai.Tick(grid, jobs, 0.1);
+
+        Assert.False(grid[breachCoord].IsBreached);
+        Assert.Same(replacementTank, crew.EquippedOxygenTank);
+        Assert.True(crew.HasUsableOxygenSupply);
+        Assert.Contains("Repaired breach", ai.CurrentActivity);
+    }
+
     [Fact]
     public void CrewMember_WithoutSuit_TakesHypoxiaAndVacuumDamageInDepressurizedTile()
     {
