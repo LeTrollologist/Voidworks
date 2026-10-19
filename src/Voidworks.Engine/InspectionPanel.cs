@@ -75,7 +75,11 @@ public sealed class InspectionPanel
             ImGui.SameLine(410f);
             ImGui.TextColored(new float4(0.9f, 0.9f, 0.9f, 1.0f), "POWER: ");
             ImGui.SameLine();
-            ImGui.TextColored(new float4(1.0f, 0.85f, 0.2f, 1.0f), $"{sim.PowerGridSolver.TotalGenerationKW:F0} / {sim.PowerGridSolver.TotalDemandKW:F1} kW");
+            bool hasPowerShortfall = sim.PowerGridSolver.TotalUnservedDemandKW > 1e-6;
+            var powerColor = hasPowerShortfall ? new float4(1.0f, 0.45f, 0.2f, 1.0f) : new float4(0.2f, 1.0f, 0.4f, 1.0f);
+            ImGui.TextColored(powerColor,
+                $"{sim.PowerGridSolver.TotalServedDemandKW:F1}/{sim.PowerGridSolver.TotalDemandKW:F1} kW served" +
+                (hasPowerShortfall ? $" · {sim.PowerGridSolver.BrownoutMachineCount} brownout" : string.Empty));
 
             // 4. Battery
             ImGui.SameLine(650f);
@@ -195,7 +199,19 @@ public sealed class InspectionPanel
 
                 ImGui.Text($"Machine Type: {selectedMachine.Type}");
                 ImGui.Text($"Position: {selectedMachine.Position}");
-                ImGui.Text($"Power Status: {(selectedMachine.IsPowered ? "POWERED (ACTIVE)" : "UNPOWERED (OFFLINE)")}");
+                string powerStatus = !selectedMachine.IsOnline
+                    ? "OFFLINE"
+                    : selectedMachine.PowerFraction <= 0.0
+                        ? "UNPOWERED"
+                        : selectedMachine.PowerFraction < 1.0 - 1e-9
+                            ? $"BROWNOUT ({selectedMachine.PowerFraction:P0})"
+                            : "POWERED (ACTIVE)";
+                var machinePowerColor = !selectedMachine.IsOnline || selectedMachine.PowerFraction <= 0.0
+                    ? new float4(1.0f, 0.2f, 0.2f, 1.0f)
+                    : selectedMachine.PowerFraction < 1.0 - 1e-9
+                        ? new float4(1.0f, 0.55f, 0.2f, 1.0f)
+                        : new float4(0.2f, 1.0f, 0.4f, 1.0f);
+                ImGui.TextColored(machinePowerColor, $"Power Status: {powerStatus}");
 
                 if (ImGui.Button(selectedMachine.IsOnline ? "Turn Machine OFF" : "Turn Machine ON"))
                 {

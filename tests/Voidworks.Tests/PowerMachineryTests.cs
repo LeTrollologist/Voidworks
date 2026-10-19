@@ -1,7 +1,10 @@
 using System.Collections.Generic;
+using Voidworks.Sim;
 using Voidworks.Sim.Atmosphere;
+using Voidworks.Sim.Jobs;
 using Voidworks.Sim.Machinery;
 using Voidworks.Sim.Power;
+using Voidworks.Sim.Persistence;
 using Voidworks.Sim.Ship;
 using Xunit;
 
@@ -89,13 +92,15 @@ public class PowerMachineryTests
         powerSolver.Tick(grid, machines, cables, 0.1);
 
         Assert.True(o2Gen.IsPowered);
-        Assert.False(smelter.IsPowered);
-        Assert.Equal(6.0, powerSolver.TotalUnservedDemandKW);
+        Assert.True(smelter.IsPowered);
+        Assert.InRange(smelter.PowerFraction, 0.4166, 0.4167);
+        Assert.Equal(1, powerSolver.BrownoutMachineCount);
+        Assert.Equal(3.5, powerSolver.TotalUnservedDemandKW, 8);
         Assert.Equal(19.0, powerSolver.TotalCurtailedGenerationKW);
     }
 
     [Fact]
-    public void BatteryDischargeRateLimit_PreservesEnergyWhenLoadCannotBeServed()
+    public void BatteryDischargeRateLimit_SharesAvailablePowerAsBrownout()
     {
         var grid = new ShipGrid(8, 8);
         grid.BuildRoom(1, 1, 6, 6, TileType.HullWall);
@@ -113,9 +118,81 @@ public class PowerMachineryTests
 
         powerSolver.Tick(grid, machines, cables, 0.1);
 
-        Assert.False(scrubber.IsPowered);
-        Assert.Equal(0.5, battery.BatteryStoredKWh);
-        Assert.Equal(2.0, powerSolver.TotalUnservedDemandKW);
+        Assert.True(scrubber.IsPowered);
+        Assert.Equal(0.5, scrubber.PowerFraction, 8);
+        Assert.True(battery.BatteryStoredKWh < 0.5);
+        Assert.Equal(1.0, powerSolver.TotalServedDemandKW, 8);
+        Assert.Equal(1.0, powerSolver.TotalUnservedDemandKW, 8);
+        Assert.Equal(1, powerSolver.BrownoutMachineCount);
+    }
+
+    [Fact]
+    public void SamePriorityLoads_ShareBrownoutAndScaleMachineOutput()
+    {
+        var grid = new ShipGrid(8, 8);
+        grid.BuildRoom(1, 1, 6, 6, TileType.HullWall);
+        var reactor = new Machine(MachineType.Reactor, new GridCoord(2, 2)) { PowerProductionKW = 4.4 };
+        var o2Gen = new Machine(MachineType.OxygenGenerator, new GridCoord(3, 2));
+        var scrubber = new Machine(MachineType.CarbonScrubber, new GridCoord(4, 2));
+        grid[3, 2].Atmosphere.Oxygen = 10.0;
+        grid[4, 2].Atmosphere.CarbonDioxide = 10.0;
+        var machines = new List<Machine> { reactor, o2Gen, scrubber };
+        var cables = new HashSet<GridCoord> { new(2, 2), new(3, 2), new(4, 2) };
+        var solver = new PowerGridSolver();
+
+        solver.Tick(grid, machines, cables, 1.0);
+
+        Assert.Equal(0.8, o2Gen.PowerFraction, 8);
+        Assert.Equal(0.8, scrubber.PowerFraction, 8);
+        Assert.Equal(4.4, solver.TotalServedDemandKW, 8);
+        Assert.Equal(1.1, solver.TotalUnservedDemandKW, 8);
+        Assert.Equal(2, solver.BrownoutMachineCount);
+
+        o2Gen.Tick(grid[o2Gen.Position], 1.0);
+        scrubber.Tick(grid[scrubber.Position], 1.0);
+        Assert.Equal(10.4, grid[3, 2].Atmosphere.Oxygen, 8);
+        Assert.Equal(9.8, grid[4, 2].Atmosphere.CarbonDioxide, 8);
+    }
+
+    [Fact]
+    public void InsufficientPowerForHigherPriorityTier_ShedsLowerPriorityLoads()
+    {
+        var grid = new ShipGrid(8, 8);
+        grid.BuildRoom(1, 1, 6, 6, TileType.HullWall);
+        var reactor = new Machine(MachineType.Reactor, new GridCoord(2, 2)) { PowerProductionKW = 2.0 };
+        var o2Gen = new Machine(MachineType.OxygenGenerator, new GridCoord(3, 2));
+        var smelter = new Machine(MachineType.SmelterRefinery, new GridCoord(4, 2));
+        var machines = new List<Machine> { reactor, o2Gen, smelter };
+        var cables = new HashSet<GridCoord> { new(2, 2), new(3, 2), new(4, 2) };
+        var solver = new PowerGridSolver();
+
+        solver.Tick(grid, machines, cables, 1.0);
+
+        Assert.Equal(2.0 / 3.5, o2Gen.PowerFraction, 8);
+        Assert.Equal(0.0, smelter.PowerFraction);
+        Assert.Equal(1, solver.BrownoutMachineCount);
+        Assert.Equal(2.0, solver.TotalServedDemandKW, 8);
+    }
+
+    [Fact]
+    public void BrownoutPowerFraction_RoundTripsThroughSaveData()
+    {
+        var grid = new ShipGrid(8, 8);
+        grid.BuildRoom(1, 1, 6, 6, TileType.HullWall);
+        var sim = new SimulationState(grid, new AtmosphereSolver(), new JobManager());
+        var reactor = new Machine(MachineType.Reactor, new GridCoord(2, 2)) { PowerProductionKW = 4.4 };
+        var o2Gen = new Machine(MachineType.OxygenGenerator, new GridCoord(3, 2));
+        var scrubber = new Machine(MachineType.CarbonScrubber, new GridCoord(4, 2));
+        sim.Machines.AddRange([reactor, o2Gen, scrubber]);
+        sim.Cables.UnionWith([new GridCoord(2, 2), new GridCoord(3, 2), new GridCoord(4, 2)]);
+        sim.Step(0.1);
+
+        var restored = SimulationSerializer.LoadFromJson(SimulationSerializer.SaveToJson(sim));
+        var restoredO2Generator = Assert.Single(restored.Machines, machine => machine.Type == MachineType.OxygenGenerator);
+        var restoredScrubber = Assert.Single(restored.Machines, machine => machine.Type == MachineType.CarbonScrubber);
+
+        Assert.Equal(o2Gen.PowerFraction, restoredO2Generator.PowerFraction, 8);
+        Assert.Equal(scrubber.PowerFraction, restoredScrubber.PowerFraction, 8);
     }
 
     [Fact]

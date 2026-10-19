@@ -11,7 +11,19 @@ public sealed class Machine
     public GridCoord Position { get; set; }
 
     public bool IsOnline { get; set; } = true;
-    public bool IsPowered { get; set; } = false;
+    private bool _isPowered;
+    public bool IsPowered
+    {
+        get => _isPowered;
+        set
+        {
+            _isPowered = value;
+            PowerFraction = value ? 1.0 : 0.0;
+        }
+    }
+
+    /// <summary>Fraction of requested electrical power currently available, from 0 to 1.</summary>
+    public double PowerFraction { get; private set; }
 
     // Power characteristics (in kW)
     public double PowerProductionKW { get; set; }
@@ -148,6 +160,12 @@ public sealed class Machine
         }
     }
 
+    internal void SetPowerFraction(double fraction)
+    {
+        PowerFraction = double.IsFinite(fraction) ? Math.Clamp(fraction, 0.0, 1.0) : 0.0;
+        _isPowered = PowerFraction > 0.0;
+    }
+
     internal void RestoreId(Guid id)
     {
         if (id == Guid.Empty) throw new ArgumentException("Machine identity must not be empty.", nameof(id));
@@ -156,7 +174,7 @@ public sealed class Machine
 
     public void Tick(ShipTile tile, double dt)
     {
-        if (dt <= 0) return;
+        if (!double.IsFinite(dt) || dt <= 0) return;
 
         // If machine is reactor, track thermal physics even if not actively powered by external grid
         if (Type == MachineType.Reactor)
@@ -166,29 +184,32 @@ public sealed class Machine
 
         if (!IsOnline || !IsPowered) return;
 
+        double poweredDt = dt * PowerFraction;
+        if (poweredDt <= 0.0) return;
+
         switch (Type)
         {
             case MachineType.OxygenGenerator:
                 if (!tile.IsVacuumSink)
                 {
-                    tile.Atmosphere.Oxygen += O2GenerationRatePerSecond * dt;
+                    tile.Atmosphere.Oxygen += O2GenerationRatePerSecond * poweredDt;
                 }
                 break;
 
             case MachineType.CarbonScrubber:
                 if (!tile.IsVacuumSink && tile.Atmosphere.CarbonDioxide > 0)
                 {
-                    double co2ToScrub = Math.Min(tile.Atmosphere.CarbonDioxide, CO2ScrubbingRatePerSecond * dt);
+                    double co2ToScrub = Math.Min(tile.Atmosphere.CarbonDioxide, CO2ScrubbingRatePerSecond * poweredDt);
                     tile.Atmosphere.CarbonDioxide -= co2ToScrub;
                 }
                 break;
 
             case MachineType.SmelterRefinery:
-                TickSmelter(dt);
+                TickSmelter(poweredDt);
                 break;
 
             case MachineType.HydroponicsBay:
-                TickHydroponics(tile, dt);
+                TickHydroponics(tile, poweredDt);
                 break;
         }
     }

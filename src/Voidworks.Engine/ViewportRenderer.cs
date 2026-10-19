@@ -194,7 +194,11 @@ public sealed class ViewportRenderer
             drawList.AddRectFilled(insetMin, insetMax, housingCol, 4f);
 
             // Status light
-            uint statusLedCol = machine.IsPowered ? 0xFF00FF40 : 0xFF2020FF;
+            uint statusLedCol = !machine.IsPowered
+                ? 0xFF2020FF
+                : machine.PowerFraction < 1.0 - 1e-9
+                    ? 0xFF20BFFF
+                    : 0xFF00FF40;
             var ledPos = pMin + new float2(camera.Zoom * 0.2f, camera.Zoom * 0.2f);
             drawList.AddCircleFilled(ledPos, Math.Max(2f, camera.Zoom * 0.08f), statusLedCol);
 

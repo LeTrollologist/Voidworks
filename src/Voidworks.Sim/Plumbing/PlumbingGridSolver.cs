@@ -107,7 +107,8 @@ public sealed class PlumbingGridSolver
             if (activeRadiators.Count == 0)
                 continue;
 
-            double pumpFlowRate = activeRadiators.Sum(r => Math.Max(0.0, r.CoolantPumpFlowRateLitersPerSecond)) * coolantAvailability;
+            double pumpFlowRate = activeRadiators.Sum(r =>
+                Math.Max(0.0, r.CoolantPumpFlowRateLitersPerSecond) * r.PowerFraction) * coolantAvailability;
             double flowLimitedCoolingKW = pumpFlowRate * CoolantHeatCapacityJoulesPerLiterKelvin * CoolantTemperatureDeltaKelvin / 1000.0;
             double radiatorCoolingCapacityKW = activeRadiators.Sum(r => Math.Max(0.0, r.RadiatorCoolingKW));
             double totalCoolingCapacityWatts = Math.Min(flowLimitedCoolingKW, radiatorCoolingCapacityKW) * 1000.0;
@@ -194,7 +195,7 @@ public sealed class PlumbingGridSolver
 
             foreach (var engine in netEngines)
             {
-                double fuelNeeded = engine.FuelBurnRateKgPerSecond * dt;
+                double fuelNeeded = engine.FuelBurnRateKgPerSecond * dt * engine.PowerFraction;
                 double fuelDrawn = 0.0;
                 double flowAllowance = Math.Min(fuelNeeded, remainingPipeThroughputKg);
 

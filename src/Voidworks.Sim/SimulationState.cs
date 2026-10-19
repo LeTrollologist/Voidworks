@@ -111,7 +111,7 @@ public sealed class SimulationState
 
                 if (m.TargetAsteroidCoord.HasValue)
                 {
-                    m.MiningProgressSeconds += dt;
+                    m.MiningProgressSeconds += dt * m.PowerFraction;
                     if (m.MiningProgressSeconds >= m.MiningCycleSeconds)
                     {
                         m.MiningProgressSeconds = 0.0;

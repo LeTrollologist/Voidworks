@@ -78,6 +78,7 @@ public static class SimulationSerializer
                 Y = m.Position.Y,
                 IsOnline = m.IsOnline,
                 IsPowered = m.IsPowered,
+                PowerFraction = m.PowerFraction,
                 PowerOutput = m.PowerProductionKW,
                 RatedPowerOutput = m.RatedPowerProductionKW,
                 PowerDemand = m.PowerConsumptionKW,
@@ -253,6 +254,7 @@ public static class SimulationSerializer
                 MiningCycleSeconds = mDto.MiningCycle,
                 TotalOreExtracted = mDto.TotalOreExtracted
             };
+            m.SetPowerFraction(mDto.PowerFraction ?? (mDto.IsPowered ? 1.0 : 0.0));
             if (mDto.TargetAsteroidX.HasValue && mDto.TargetAsteroidY.HasValue)
                 m.TargetAsteroidCoord = new GridCoord(mDto.TargetAsteroidX.Value, mDto.TargetAsteroidY.Value);
             m.RestoreId(mDto.Id);
@@ -518,6 +520,7 @@ public sealed class MachineSaveDto
     public int Y { get; set; }
     public bool IsOnline { get; set; }
     public bool IsPowered { get; set; }
+    public double? PowerFraction { get; set; }
     public double PowerOutput { get; set; }
     public double RatedPowerOutput { get; set; }
     public double PowerDemand { get; set; }
