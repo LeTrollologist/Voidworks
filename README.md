@@ -189,7 +189,7 @@ The roadmap is iterative and may change as systems are validated.
 - [x] Autonomous equipment retrieval and breach-repair workflow
 - [x] Initial mining, ore processing, plumbing, and hydroponics systems
 - [x] Engineering overlays and system inspection
-- [ ] Expand and validate electrical grid behavior, including load distribution and brownouts
+- [x] Expand and validate electrical grid behavior, including load distribution and brownouts
 - [ ] Add more cross-system failure and recovery tests
 - [ ] Improve multi-crew coordination and work scheduling
 - [ ] Add robust save/load and reproducible simulation scenarios

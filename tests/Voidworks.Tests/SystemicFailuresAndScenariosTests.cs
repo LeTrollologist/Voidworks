@@ -309,6 +309,63 @@ public class SystemicFailuresAndScenariosTests
     }
 
     [Fact]
+    public void LifeSupportPowerFailure_RecoversCrewAndReplaysAfterSaveLoad()
+    {
+        var grid = new ShipGrid(7, 7);
+        grid.BuildRoom(1, 1, 5, 5, TileType.HullWall);
+        foreach (var tile in grid.AllTiles().Where(tile => tile.Type == TileType.Floor))
+        {
+            tile.Atmosphere.Oxygen = 0.0;
+            tile.Atmosphere.Nitrogen = 100.0;
+            tile.Atmosphere.CarbonDioxide = 0.0;
+            tile.Atmosphere.ToxicGas = 0.0;
+        }
+
+        var reactor = new Machine(MachineType.Reactor, new GridCoord(2, 2)) { IsOnline = false };
+        var oxygenGenerator = new Machine(MachineType.OxygenGenerator, new GridCoord(3, 3));
+        var crew = new CrewMember("Miller", new GridCoord(3, 4));
+        var sim = new SimulationState(grid, new AtmosphereSolver(), new JobManager());
+        sim.Machines.Add(reactor);
+        sim.Machines.Add(oxygenGenerator);
+        sim.Crew.Add(new CrewAI(crew));
+        sim.Cables.UnionWith([new GridCoord(2, 2), new GridCoord(3, 2), new GridCoord(3, 3)]);
+
+        // With the reactor offline, life support cannot power the generator and crew hypoxia worsens.
+        for (int i = 0; i < 45; i++) sim.Step(0.1);
+
+        Assert.False(oxygenGenerator.IsPowered);
+        Assert.True(crew.Physiology.OxygenSaturation < 60.0);
+        Assert.True(crew.Physiology.Health < 100.0);
+        Assert.True(crew.Physiology.IsAlive);
+
+        // Save during the emergency, then apply the same repair to both branches.
+        var restored = SimulationSerializer.LoadFromJson(SimulationSerializer.SaveToJson(sim));
+        var restoredReactor = Assert.Single(restored.Machines, machine => machine.Type == MachineType.Reactor);
+        var restoredGenerator = Assert.Single(restored.Machines, machine => machine.Type == MachineType.OxygenGenerator);
+        var restoredCrew = restored.Crew[0].Crew;
+        Assert.Equal(oxygenGenerator.PowerFraction, restoredGenerator.PowerFraction, 8);
+
+        reactor.IsOnline = true;
+        restoredReactor.IsOnline = true;
+        for (int i = 0; i < 120; i++)
+        {
+            sim.Step(0.1);
+            restored.Step(0.1);
+        }
+
+        Assert.Equal(1.0, oxygenGenerator.PowerFraction, precision: 8);
+        Assert.Equal(0, sim.PowerGridSolver.BrownoutMachineCount);
+        Assert.True(crew.Physiology.OxygenSaturation > 90.0);
+        Assert.Equal(crew.Physiology.OxygenSaturation, restoredCrew.Physiology.OxygenSaturation, precision: 8);
+        Assert.Equal(crew.Physiology.Health, restoredCrew.Physiology.Health, precision: 8);
+        Assert.Equal(crew.Position, restoredCrew.Position);
+        Assert.Equal(sim.SimTime, restored.SimTime, precision: 8);
+        Assert.Equal(grid[3, 4].Atmosphere.Oxygen, restored.Grid[3, 4].Atmosphere.Oxygen, precision: 8);
+        Assert.Equal(grid[3, 4].Atmosphere.CarbonDioxide, restored.Grid[3, 4].Atmosphere.CarbonDioxide, precision: 8);
+        Assert.Equal(oxygenGenerator.PowerFraction, restoredGenerator.PowerFraction, precision: 8);
+    }
+
+    [Fact]
     public void Test3_CrewEmergency_BreachPreemptsIndustrialWork_RepairsBreach_ResumesProductiveWork()
     {
         var grid = new ShipGrid(10, 8);
