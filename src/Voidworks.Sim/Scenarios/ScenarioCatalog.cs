@@ -275,12 +275,156 @@ public static class ScenarioCatalog
         return scenario;
     }
 
+    public static Scenario CreateCrewHazardResponse()
+    {
+        CrewAI? injuredEngineer = null;
+        CrewAI? responder = null;
+        GridCoord bulkhead = default;
+        GridCoord breach = default;
+
+        var scenario = new Scenario(
+            "crew-hazard-response",
+            "Crew Hazard Response",
+            "A hull breach is draining an isolated compartment. An injured engineer must get to safety while a suited crewmate brings spare EVA gear and helps seal the breach.",
+            timeLimitSeconds: 120.0);
+
+        scenario.SetupAction = sim =>
+        {
+            if (sim.Grid.Width < 20 || sim.Grid.Height < 9)
+                throw new InvalidOperationException("The crew hazard response scenario requires a ship grid at least 20 by 9 tiles.");
+
+            injuredEngineer = sim.Crew.FirstOrDefault(ai =>
+                string.Equals(ai.Crew.Role, "Engineer", StringComparison.OrdinalIgnoreCase))
+                ?? sim.Crew.FirstOrDefault();
+            if (injuredEngineer == null)
+                throw new InvalidOperationException("The crew hazard response scenario requires at least two crew members.");
+
+            responder = sim.Crew.FirstOrDefault(ai => ai != injuredEngineer);
+            if (responder == null)
+                throw new InvalidOperationException("The crew hazard response scenario requires at least two crew members.");
+
+            injuredEngineer.Crew.Role = "Engineer";
+            responder.Crew.Role = "Medic";
+            sim.Crew.Clear();
+            sim.Crew.Add(injuredEngineer);
+            sim.Crew.Add(responder);
+
+            bulkhead = new GridCoord(sim.Grid.Width / 2 + 1, sim.Grid.Height / 2);
+            breach = new GridCoord(sim.Grid.Width - 4, sim.Grid.Height / 2);
+            var injuredPosition = new GridCoord(breach.X - 1, breach.Y);
+            var responderPosition = new GridCoord(bulkhead.X - 2, bulkhead.Y);
+
+            injuredEngineer.Crew.Position = injuredPosition;
+            injuredEngineer.Crew.AssignedBunkCoord = null;
+            injuredEngineer.Crew.MoveSpeed = 2.5;
+            injuredEngineer.Crew.Physiology.Health = 58.0;
+            injuredEngineer.Crew.Physiology.OxygenSaturation = 62.0;
+            injuredEngineer.Crew.Physiology.Hunger = 0.0;
+            injuredEngineer.Crew.Physiology.Thirst = 0.0;
+            injuredEngineer.Crew.Physiology.Fatigue = 0.0;
+            injuredEngineer.Crew.Psychology.Restore(
+                courage: 25.0, discipline: 65.0, selfPreservation: 90.0, determination: 45.0,
+                sociability: 70.0, motivation: 45.0, fear: 58.0, stress: 5.0, anger: 0.0, morale: 60.0);
+
+            responder.Crew.Position = responderPosition;
+            responder.Crew.AssignedBunkCoord = null;
+            responder.Crew.MoveSpeed = 2.5;
+            responder.Crew.Physiology.Health = 100.0;
+            responder.Crew.Physiology.OxygenSaturation = 100.0;
+            responder.Crew.Physiology.Hunger = 0.0;
+            responder.Crew.Physiology.Thirst = 0.0;
+            responder.Crew.Physiology.Fatigue = 0.0;
+            responder.Crew.Psychology.Restore(
+                courage: 80.0, discipline: 90.0, selfPreservation: 25.0, determination: 80.0,
+                sociability: 95.0, motivation: 85.0, fear: 0.0, stress: 0.0, anger: 0.0, morale: 85.0);
+
+            for (int y = 1; y < sim.Grid.Height - 1; y++)
+                sim.Grid[bulkhead.X, y].Type = TileType.InteriorWall;
+            sim.Grid.PlaceDoor(bulkhead.X, bulkhead.Y, DoorState.Closed);
+
+            foreach (var job in sim.JobManager.ActiveJobs.ToList())
+                sim.JobManager.CancelJob(job);
+            foreach (var item in sim.JobManager.WorldItems.ToList())
+                sim.JobManager.RemoveItem(item);
+
+            var weldingTorch = new Item(ItemType.WeldingTorch, injuredPosition);
+            var steelPatch = new Item(ItemType.SteelPlate, injuredPosition);
+            injuredEngineer.Crew.PickUp(weldingTorch);
+            injuredEngineer.Crew.PickUp(steelPatch);
+
+            var responderSuit = new Item(ItemType.EvaSuit, responderPosition);
+            var responderTank = new Item(ItemType.OxygenTank, responderPosition);
+            responder.Crew.PickUp(responderSuit);
+            responder.Crew.PickUp(responderTank);
+            responder.Crew.EquipSuit(responderSuit, responderTank);
+            responder.Crew.PickUp(new Item(ItemType.EvaSuit, responderPosition));
+            responder.Crew.PickUp(new Item(ItemType.OxygenTank, responderPosition));
+
+            sim.Grid.BreachTile(breach.X, breach.Y);
+            sim.JobManager.ScanWorldForEmergencies(sim.Grid);
+        };
+
+        scenario.FailureEvaluator = _ =>
+        {
+            if (injuredEngineer != null && !injuredEngineer.Crew.Physiology.IsAlive)
+                return $"{injuredEngineer.Crew.Name} did not survive the decompression.";
+            if (responder != null && !responder.Crew.Physiology.IsAlive)
+                return $"{responder.Crew.Name} was lost during the rescue.";
+            return null;
+        };
+
+        scenario.Objectives.Add(new ScenarioObjective(
+            "crew-feels-danger",
+            "React to the Decompression",
+            "The exposed engineer's fear should rise enough to influence their response as the compartment loses pressure.",
+            _ => injuredEngineer != null && injuredEngineer.Crew.Psychology.Fear >= 60.0));
+
+        scenario.Objectives.Add(new ScenarioObjective(
+            "evacuate-injured-engineer",
+            "Escape the Depressurizing Compartment",
+            "The injured engineer should retreat through the bulkhead into a pressurized part of the ship.",
+            sim => injuredEngineer != null && injuredEngineer.Crew.Position.X < bulkhead.X &&
+                !sim.Grid[injuredEngineer.Crew.Position].IsVacuumSink &&
+                sim.Grid[injuredEngineer.Crew.Position].Atmosphere.PressureKPa >= 50.0));
+
+        scenario.Objectives.Add(new ScenarioObjective(
+            "receive-eva-gear",
+            "Receive Protective Equipment",
+            "The suited responder should bring the engineer a spare suit and oxygen tank.",
+            _ => injuredEngineer != null && injuredEngineer.Crew.IsEquippedWithSuit &&
+                injuredEngineer.Crew.HasUsableOxygenSupply));
+
+        scenario.Objectives.Add(new ScenarioObjective(
+            "responder-helps-engineer",
+            "Help the Injured Engineer",
+            "The medic should answer the request and deliver the missing EVA equipment.",
+            _ => responder != null && injuredEngineer != null &&
+                responder.CurrentActivity.Contains($"Helped {injuredEngineer.Crew.Name}: delivered the needed equipment", StringComparison.OrdinalIgnoreCase)));
+
+        scenario.Objectives.Add(new ScenarioObjective(
+            "seal-hull-breach",
+            "Seal the Hull Breach",
+            "Equip the engineer and patch the leaking hull.",
+            sim => sim.Grid.IsInBounds(breach) && !sim.Grid[breach].IsBreached));
+
+        scenario.Objectives.Add(new ScenarioObjective(
+            "stabilize-injured-engineer",
+            "Stabilize the Engineer",
+            "After reaching breathable air or a working suit, the injured engineer's oxygen saturation should recover above 80%.",
+            _ => injuredEngineer != null && responder != null &&
+                injuredEngineer.Crew.Physiology.IsAlive && responder.Crew.Physiology.IsAlive &&
+                injuredEngineer.Crew.Physiology.OxygenSaturation >= 80.0));
+
+        return scenario;
+    }
+
     public static Scenario? CreateById(string id) => id.ToLowerInvariant() switch
     {
         "derelict-crisis" => CreateTheDerelictCrisis(),
         "asteroid-expedition" => CreateAsteroidExpedition(),
         "hull-breach" => CreateHullBreachEmergency(),
         "crew-assistance" => CreateCrewAssistance(),
+        "crew-hazard-response" => CreateCrewHazardResponse(),
         _ => null
     };
 }

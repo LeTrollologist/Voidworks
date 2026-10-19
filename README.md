@@ -102,6 +102,12 @@ Launch the crew assistance scenario in the graphical application:
 dotnet run --project src/Voidworks.Game/Voidworks.Game.csproj -- --scenario crew-assistance
 ```
 
+Launch the crew hazard response scenario in the graphical application:
+
+```powershell
+dotnet run --project src/Voidworks.Game/Voidworks.Game.csproj -- --scenario crew-hazard-response
+```
+
 Run the headless simulation:
 
 ```powershell
@@ -112,6 +118,12 @@ Run the crew assistance scenario without opening a window:
 
 ```powershell
 dotnet run --project src/Voidworks.Game/Voidworks.Game.csproj -- --headless --scenario crew-assistance
+```
+
+Run the crew hazard response scenario without opening a window:
+
+```powershell
+dotnet run --project src/Voidworks.Game/Voidworks.Game.csproj -- --headless --scenario crew-hazard-response
 ```
 
 Run the automated tests:
