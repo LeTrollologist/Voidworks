@@ -11,5 +11,6 @@ public enum JobType
     Rest,
     RefineOre,
     HarvestCrops,
-    MineAsteroid
+    MineAsteroid,
+    AssistCrew
 }

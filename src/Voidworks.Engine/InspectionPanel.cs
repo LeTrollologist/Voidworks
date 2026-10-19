@@ -6,6 +6,7 @@ using Brutal.Numerics;
 using Voidworks.Sim;
 using Voidworks.Sim.Crew;
 using Voidworks.Sim.Items;
+using Voidworks.Sim.Jobs;
 using Voidworks.Sim.Machinery;
 using Voidworks.Sim.Navigation;
 using Voidworks.Sim.Persistence;
@@ -318,6 +319,10 @@ public sealed class InspectionPanel
                 ImGui.Spacing();
                 ImGui.TextColored(new float4(1.0f, 0.8f, 0.2f, 1.0f), "CURRENT ACTIVITY:");
                 ImGui.Text(ai?.CurrentActivity ?? "Idle");
+                if (ai?.IsRequestingAssistance == true)
+                    ImGui.TextColored(new float4(1.0f, 0.7f, 0.35f, 1.0f), "Assistance request is active");
+                if (ai?.CurrentJob?.Type == JobType.AssistCrew)
+                    ImGui.TextColored(new float4(0.45f, 0.9f, 0.65f, 1.0f), $"Helping another crew member: {ai.CurrentJob.Name}");
                 ImGui.TextColored(new float4(0.8f, 0.65f, 1.0f, 1.0f),
                     "PSYCHOLOGY: independent traits and current pressures");
                 ImGui.Text(

@@ -133,6 +133,9 @@ public static class SimulationSerializer
                 PendingSubJobs = c.PendingSubJobs.Select(ToJobDto).ToList(),
                 CurrentPath = c.CurrentPath.Select(ToCoordDto).ToList(),
                 MovementAccumulator = c.MovementAccumulator,
+                DeferredJobId = c.DeferredJobId,
+                DeferredJobTimer = c.DeferredJobTimer,
+                IsRequestingAssistance = c.IsRequestingAssistance,
                 BunkX = c.Crew.AssignedBunkCoord?.X,
                 BunkY = c.Crew.AssignedBunkCoord?.Y,
                 Health = c.Crew.Physiology.Health,
@@ -342,7 +345,10 @@ public static class SimulationSerializer
                 pendingJobs,
                 crewDto.CurrentPath.Select(c => new GridCoord(c.X, c.Y)),
                 crewDto.MovementAccumulator,
-                crewDto.CurrentActivity);
+                crewDto.CurrentActivity,
+                crewDto.DeferredJobId,
+                crewDto.DeferredJobTimer,
+                crewDto.IsRequestingAssistance);
         }
 
         // Restore Scenario
@@ -413,6 +419,11 @@ public static class SimulationSerializer
         TargetY = job.TargetCoord.Y,
         TargetItemId = job.TargetItem?.Id,
         DesiredItemType = job.DesiredItemType,
+        TargetCrewId = job.TargetCrewId,
+        SourceTaskJobId = job.SourceTaskJobId,
+        AssistanceReason = job.AssistanceReason,
+        AssistanceItemTypes = job.AssistanceItemTypes.ToList(),
+        FailedAssistantCrewIds = job.FailedAssistantCrewIds.ToList(),
         Priority = job.Priority,
         AssignedCrewId = job.AssignedCrewId,
         WorkRemaining = job.WorkRemainingSeconds,
@@ -434,9 +445,14 @@ public static class SimulationSerializer
         {
             DesiredItemType = dto.DesiredItemType,
             AssignedCrewId = dto.AssignedCrewId,
+            TargetCrewId = dto.TargetCrewId,
+            SourceTaskJobId = dto.SourceTaskJobId,
+            AssistanceReason = dto.AssistanceReason,
             IsCompleted = dto.IsCompleted,
             IsCancelled = dto.IsCancelled
         };
+        job.AssistanceItemTypes.AddRange(dto.AssistanceItemTypes);
+        job.FailedAssistantCrewIds.AddRange(dto.FailedAssistantCrewIds);
         if (dto.TargetItemId.HasValue && itemsById.TryGetValue(dto.TargetItemId.Value, out var item))
             job.TargetItem = item;
         if (dto.Id != Guid.Empty)
@@ -575,6 +591,9 @@ public sealed class CrewSaveDto
     public List<JobSaveDto> PendingSubJobs { get; set; } = new();
     public List<CoordDto> CurrentPath { get; set; } = new();
     public double MovementAccumulator { get; set; }
+    public Guid? DeferredJobId { get; set; }
+    public double DeferredJobTimer { get; set; }
+    public bool IsRequestingAssistance { get; set; }
     public int? BunkX { get; set; }
     public int? BunkY { get; set; }
     public double Health { get; set; }
@@ -609,6 +628,11 @@ public sealed class JobSaveDto
     public int TargetY { get; set; }
     public Guid? TargetItemId { get; set; }
     public ItemType? DesiredItemType { get; set; }
+    public Guid? TargetCrewId { get; set; }
+    public Guid? SourceTaskJobId { get; set; }
+    public CrewDiagnosticReason? AssistanceReason { get; set; }
+    public List<ItemType> AssistanceItemTypes { get; set; } = new();
+    public List<Guid> FailedAssistantCrewIds { get; set; } = new();
     public int Priority { get; set; }
     public Guid? AssignedCrewId { get; set; }
     public double WorkRemaining { get; set; }

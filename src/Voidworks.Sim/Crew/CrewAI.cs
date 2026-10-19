@@ -19,6 +19,7 @@ public sealed class CrewAI
     private double _retreatRetryTimer;
     private Guid? _deferredJobId;
     private double _deferredJobTimer;
+    private bool _isRequestingAssistance;
 
     public CrewMember Crew { get; }
     public Job? CurrentJob { get; private set; }
@@ -27,8 +28,9 @@ public sealed class CrewAI
     public IReadOnlyList<GridCoord> CurrentPath => _currentPath == null ? Array.Empty<GridCoord>() : _currentPath;
     public double MovementAccumulator => _moveAccumulator;
     public CrewDecisionDiagnostic? LastDiagnostic { get; private set; }
-    public bool IsRequestingAssistance => LastDiagnostic is
-        { Reason: CrewDiagnosticReason.RepeatedTaskFailure, FailureCount: >= 3 };
+    public bool IsRequestingAssistance => _isRequestingAssistance;
+    internal Guid? DeferredJobId => _deferredJobId;
+    internal double DeferredJobTimer => _deferredJobTimer;
 
     public CrewAI(CrewMember crew)
     {
@@ -40,7 +42,10 @@ public sealed class CrewAI
         IEnumerable<Job> pendingSubJobs,
         IEnumerable<GridCoord> currentPath,
         double movementAccumulator,
-        string currentActivity)
+        string currentActivity,
+        Guid? deferredJobId = null,
+        double deferredJobTimer = 0.0,
+        bool isRequestingAssistance = false)
     {
         CurrentJob = currentJob;
         _subJobs.Clear();
@@ -50,9 +55,17 @@ public sealed class CrewAI
         if (_currentPath.Count == 0) _currentPath = null;
         _moveAccumulator = Math.Max(0.0, movementAccumulator);
         CurrentActivity = currentActivity;
+        _deferredJobId = deferredJobId;
+        _deferredJobTimer = Math.Max(0.0, deferredJobTimer);
+        _isRequestingAssistance = isRequestingAssistance;
     }
 
-    public void Tick(ShipGrid grid, JobManager jobManager, double dt, int nearbyCrewCount = 0)
+    public void Tick(
+        ShipGrid grid,
+        JobManager jobManager,
+        double dt,
+        int nearbyCrewCount = 0,
+        IReadOnlyList<CrewAI>? allCrew = null)
     {
         if (dt <= 0) return;
 
@@ -63,8 +76,35 @@ public sealed class CrewAI
         Crew.Psychology.RegisterInjury(previousHealth - Crew.Physiology.Health);
         Crew.Psychology.Tick(Crew, currentTile, CurrentJob != null || _subJobs.Count > 0, nearbyCrewCount, dt);
         _retreatRetryTimer = Math.Max(0.0, _retreatRetryTimer - dt);
-        _deferredJobTimer = Math.Max(0.0, _deferredJobTimer - dt);
-        if (_deferredJobTimer <= 0.0)
+        if (_isRequestingAssistance && _deferredJobId.HasValue &&
+            !jobManager.HasAssistanceRequest(Crew.Id, _deferredJobId))
+        {
+            _isRequestingAssistance = false;
+            _deferredJobTimer = 0.0;
+            _deferredJobId = null;
+            ClearFailureAfterSuccess();
+            CurrentActivity = "Assistance completed; reconsidering task";
+        }
+
+        if (_deferredJobTimer > 0.0)
+        {
+            _deferredJobTimer = Math.Max(0.0, _deferredJobTimer - dt);
+            if (_deferredJobTimer <= 0.0 && _deferredJobId.HasValue)
+            {
+                jobManager.CancelAssistanceRequests(Crew.Id, _deferredJobId);
+                _isRequestingAssistance = false;
+                _deferredJobId = null;
+            }
+        }
+
+        if (CurrentJob?.Type == JobType.AssistCrew && !jobManager.ActiveJobs.Contains(CurrentJob))
+        {
+            CurrentJob = null;
+            _currentPath = null;
+            _moveAccumulator = 0.0;
+        }
+
+        if (_deferredJobTimer <= 0.0 && !_isRequestingAssistance)
             _deferredJobId = null;
 
         if (!Crew.Physiology.IsAlive)
@@ -122,8 +162,7 @@ public sealed class CrewAI
         if (CurrentJob != null && CurrentJob.Priority < 100)
         {
             var emergency = jobManager.ActiveJobs
-                .Where(j => !j.IsCompleted && !j.IsCancelled && j.Priority >= 100 &&
-                            (j.AssignedCrewId == null || j.AssignedCrewId == Crew.Id))
+                .Where(j => j.Priority >= 100 && jobManager.CanCrewClaimJob(j, Crew))
                 .OrderByDescending(j => j.Priority)
                 .FirstOrDefault();
 
@@ -149,7 +188,12 @@ public sealed class CrewAI
             if (refreshedPath == null || refreshedPath.Count <= 1)
             {
                 if (refreshedPath == null)
-                    RecordNavigationFailure(routeResult, routeGoal);
+                {
+                    if (CurrentJob?.Type == JobType.AssistCrew)
+                        FailAssistance(routeResult.Diagnostic, jobManager);
+                    else
+                        LastDiagnostic = routeResult.Diagnostic with { Target = routeGoal };
+                }
                 _currentPath = null;
                 _moveAccumulator = 0.0;
             }
@@ -209,7 +253,7 @@ public sealed class CrewAI
         // 3. Process current job
         if (CurrentJob != null)
         {
-            ExecuteCurrentJob(grid, jobManager, dt);
+            ExecuteCurrentJob(grid, jobManager, dt, allCrew);
             return;
         }
 
@@ -226,6 +270,15 @@ public sealed class CrewAI
     private void EvaluateNextTask(ShipGrid grid, JobManager jobManager)
     {
         bool emergencyPlanFailed = false;
+        // Assistance requests outrank routine assignments. Critical retreat and
+        // physiology handling have already run before reaching task selection.
+        var assistanceJob = jobManager.ClaimAssistanceRequest(Crew);
+        if (assistanceJob != null)
+        {
+            CurrentJob = assistanceJob;
+            return;
+        }
+
         // First, check critical emergencies from the world board (breaches)
         var emergencyJob = jobManager.ClaimHighestPriorityJob(
             Crew,
@@ -329,10 +382,27 @@ public sealed class CrewAI
             : jobManager.FindAvailableItem(ItemType.SteelPlate, Crew.Position, Crew.Id);
 
         var missingResources = new List<string>();
-        if (!Crew.IsEquippedWithSuit && suit == null) missingResources.Add("EVA suit");
-        if (!Crew.HasUsableOxygenSupply && oxygenTank == null) missingResources.Add("usable oxygen tank");
-        if (!Crew.HasItem(ItemType.WeldingTorch) && torch == null) missingResources.Add("welding torch");
-        if (!Crew.HasItem(ItemType.SteelPlate) && plate == null) missingResources.Add("steel plate");
+        var missingItemTypes = new List<ItemType>();
+        if (!Crew.IsEquippedWithSuit && suit == null)
+        {
+            missingResources.Add("EVA suit");
+            missingItemTypes.Add(ItemType.EvaSuit);
+        }
+        if (!Crew.HasUsableOxygenSupply && oxygenTank == null)
+        {
+            missingResources.Add("usable oxygen tank");
+            missingItemTypes.Add(ItemType.OxygenTank);
+        }
+        if (!Crew.HasItem(ItemType.WeldingTorch) && torch == null)
+        {
+            missingResources.Add("welding torch");
+            missingItemTypes.Add(ItemType.WeldingTorch);
+        }
+        if (!Crew.HasItem(ItemType.SteelPlate) && plate == null)
+        {
+            missingResources.Add("steel plate");
+            missingItemTypes.Add(ItemType.SteelPlate);
+        }
         if (missingResources.Count > 0)
         {
             RecordTaskFailure(new CrewDecisionDiagnostic(
@@ -340,7 +410,10 @@ public sealed class CrewAI
                 breachJob.TargetCoord,
                 Crew.Position,
                 null,
-                $"Required for breach repair: {string.Join(", ", missingResources)}."), breachJob);
+                $"Required for breach repair: {string.Join(", ", missingResources)}."),
+                breachJob,
+                jobManager,
+                missingItemTypes);
             return false;
         }
 
@@ -364,7 +437,7 @@ public sealed class CrewAI
         }
     }
 
-    private void ExecuteCurrentJob(ShipGrid grid, JobManager jobManager, double dt)
+    private void ExecuteCurrentJob(ShipGrid grid, JobManager jobManager, double dt, IReadOnlyList<CrewAI>? allCrew)
     {
         switch (CurrentJob!.Type)
         {
@@ -396,6 +469,10 @@ public sealed class CrewAI
                 ExecuteRest(grid, jobManager, dt);
                 break;
 
+            case JobType.AssistCrew:
+                ExecuteAssistCrew(grid, jobManager, allCrew);
+                break;
+
             default:
                 CurrentJob = null;
                 break;
@@ -425,7 +502,7 @@ public sealed class CrewAI
         var routeResult = AStarPathfinder.FindPathWithDiagnostics(grid, Crew.Position, item.Position, Crew);
         if (routeResult.Path == null || routeResult.Path.Count <= 1)
         {
-            RecordNavigationFailure(routeResult, item.Position);
+            RecordNavigationFailure(routeResult, item.Position, jobManager);
             item.ReservedByCrewId = null;
             jobManager.ReleaseJob(CurrentJob);
             CurrentJob = null;
@@ -475,7 +552,7 @@ public sealed class CrewAI
             var oreRouteResult = AStarPathfinder.FindPathWithDiagnostics(grid, Crew.Position, ore.Position, Crew);
             if (oreRouteResult.Path == null || oreRouteResult.Path.Count <= 1)
             {
-                RecordNavigationFailure(oreRouteResult, ore.Position);
+                RecordNavigationFailure(oreRouteResult, ore.Position, jobManager);
                 jobManager.ReleaseJob(job);
                 CurrentJob = null;
                 return;
@@ -504,7 +581,7 @@ public sealed class CrewAI
         var smelterRouteResult = AStarPathfinder.FindPathWithDiagnostics(grid, Crew.Position, job.TargetCoord, Crew);
         if (smelterRouteResult.Path == null || smelterRouteResult.Path.Count <= 1)
         {
-            RecordNavigationFailure(smelterRouteResult, job.TargetCoord);
+            RecordNavigationFailure(smelterRouteResult, job.TargetCoord, jobManager);
             jobManager.ReleaseJob(job);
             CurrentJob = null;
             return;
@@ -580,7 +657,7 @@ public sealed class CrewAI
         var routeResult = AStarPathfinder.FindPathToAdjacentWithDiagnostics(grid, Crew.Position, breachCoord, Crew);
         if (routeResult.Path == null || routeResult.Path.Count <= 1)
         {
-            RecordNavigationFailure(routeResult, breachCoord);
+            RecordNavigationFailure(routeResult, breachCoord, jobManager);
             jobManager.ReleaseJob(CurrentJob);
             CurrentJob = null;
             CurrentActivity = "Cannot reach breach";
@@ -657,7 +734,7 @@ public sealed class CrewAI
         var routeResult = AStarPathfinder.FindPathWithDiagnostics(grid, Crew.Position, bunkCoord, Crew);
         if (routeResult.Path == null || routeResult.Path.Count <= 1)
         {
-            RecordNavigationFailure(routeResult, bunkCoord);
+            RecordNavigationFailure(routeResult, bunkCoord, jobManager);
             CurrentJob = null;
             CurrentActivity = "Bunk unreachable";
             return;
@@ -668,6 +745,179 @@ public sealed class CrewAI
         path.RemoveAt(0);
         _currentPath = path;
         CurrentActivity = $"Heading to bunk at {bunkCoord}";
+    }
+
+    private void ExecuteAssistCrew(ShipGrid grid, JobManager jobManager, IReadOnlyList<CrewAI>? allCrew)
+    {
+        var assistanceJob = CurrentJob!;
+        var requester = allCrew?.FirstOrDefault(ai => ai.Crew.Id == assistanceJob.TargetCrewId)?.Crew;
+        if (requester == null || !requester.Physiology.IsAlive)
+        {
+            jobManager.CompleteJob(assistanceJob);
+            CurrentJob = null;
+            _currentPath = null;
+            CurrentActivity = "Assistance request closed";
+            return;
+        }
+
+        if (assistanceJob.AssistanceReason == CrewDiagnosticReason.BlockedByLockedDoor)
+        {
+            var doorCoord = assistanceJob.TargetCoord;
+            if (!grid.IsInBounds(doorCoord) || grid[doorCoord].Type != TileType.Door ||
+                grid[doorCoord].DoorState != DoorState.Locked)
+            {
+                CompleteAssistance(jobManager, assistanceJob, requester, "access is available");
+                return;
+            }
+
+            int doorDistance = Math.Abs(Crew.Position.X - doorCoord.X) + Math.Abs(Crew.Position.Y - doorCoord.Y);
+            if (doorDistance <= 1)
+            {
+                grid[doorCoord].DoorState = DoorState.Open;
+                CompleteAssistance(jobManager, assistanceJob, requester, $"opened the locked door at {doorCoord}");
+                return;
+            }
+
+            var route = AStarPathfinder.FindPathToAdjacentWithDiagnostics(grid, Crew.Position, doorCoord, Crew);
+            if (route.Path == null || route.Path.Count <= 1)
+            {
+                FailAssistance(route.Diagnostic, jobManager);
+                return;
+            }
+
+            route.Path.RemoveAt(0);
+            _currentPath = route.Path;
+            CurrentActivity = $"Helping {requester.Name}: moving to locked door at {doorCoord}";
+            return;
+        }
+
+        if (assistanceJob.AssistanceReason is CrewDiagnosticReason.BlockedByObstacle or
+            CrewDiagnosticReason.NoReachablePath or CrewDiagnosticReason.HazardExceedsTolerance)
+        {
+            var sourceTask = jobManager.AssignSourceTaskToHelper(assistanceJob, Crew);
+            if (sourceTask == null)
+            {
+                FailAssistance(new CrewDecisionDiagnostic(
+                    assistanceJob.AssistanceReason.Value,
+                    assistanceJob.TargetCoord,
+                    Crew.Position,
+                    null,
+                    "The original task is no longer available for another crew member to try."), jobManager);
+                return;
+            }
+
+            Crew.Psychology.RegisterHelpedAnotherCrewMember();
+            requester.Psychology.RegisterReceivedAssistance();
+            CurrentJob = sourceTask;
+            _currentPath = null;
+            CurrentActivity = $"Taking over {sourceTask.Name} for {requester.Name}";
+            return;
+        }
+
+        if (assistanceJob.AssistanceReason != CrewDiagnosticReason.ResourceUnavailable)
+        {
+            jobManager.CompleteJob(assistanceJob);
+            CurrentJob = null;
+            CurrentActivity = "Assistance request could not be acted on";
+            return;
+        }
+
+        var missingItems = assistanceJob.AssistanceItemTypes
+            .Where(type => !CrewHasResource(requester, type))
+            .Distinct()
+            .ToList();
+        if (missingItems.Count == 0)
+        {
+            CompleteAssistance(jobManager, assistanceJob, requester, "confirmed the required equipment is ready");
+            return;
+        }
+
+        int requesterDistance = Math.Abs(Crew.Position.X - requester.Position.X) + Math.Abs(Crew.Position.Y - requester.Position.Y);
+        if (requesterDistance > 1)
+        {
+            var route = AStarPathfinder.FindPathWithDiagnostics(grid, Crew.Position, requester.Position, Crew);
+            if (route.Path == null || route.Path.Count <= 1)
+            {
+                FailAssistance(route.Diagnostic, jobManager);
+                return;
+            }
+
+            route.Path.RemoveAt(0);
+            _currentPath = route.Path;
+            CurrentActivity = $"Helping {requester.Name}: bringing required equipment";
+            return;
+        }
+
+        bool transferredAny = false;
+        foreach (var type in missingItems)
+        {
+            var item = Crew.Inventory.FirstOrDefault(candidate =>
+                candidate.Type == type && (type != ItemType.OxygenTank || candidate.StoredOxygenMoles > 0.05));
+            if (item == null || !Crew.Drop(item, requester.Position))
+                continue;
+
+            if (requester.PickUp(item))
+                transferredAny = true;
+            else
+                Crew.PickUp(item);
+        }
+
+        var stillMissing = missingItems.Where(type => !CrewHasResource(requester, type)).ToList();
+        if (stillMissing.Count == 0)
+        {
+            CompleteAssistance(jobManager, assistanceJob, requester, "delivered the needed equipment");
+            return;
+        }
+
+        assistanceJob.AssistanceItemTypes.Clear();
+        assistanceJob.AssistanceItemTypes.AddRange(stillMissing);
+        bool canContinue = Crew.Inventory.Any(item => stillMissing.Contains(item.Type) &&
+            (item.Type != ItemType.OxygenTank || item.StoredOxygenMoles > 0.05));
+        if (!transferredAny || !canContinue)
+            FailAssistance(new CrewDecisionDiagnostic(
+                CrewDiagnosticReason.ResourceUnavailable,
+                requester.Position,
+                Crew.Position,
+                null,
+                "The helper could not transfer every remaining required item."), jobManager);
+        else
+            CurrentActivity = $"Helping {requester.Name}: delivered some equipment";
+    }
+
+    private static bool CrewHasResource(CrewMember crew, ItemType type) => type switch
+    {
+        ItemType.EvaSuit => crew.IsEquippedWithSuit || crew.HasItem(ItemType.EvaSuit),
+        ItemType.OxygenTank => crew.HasUsableOxygenSupply || crew.Inventory.Any(item =>
+            item.Type == ItemType.OxygenTank && item.StoredOxygenMoles > 0.05),
+        _ => crew.HasItem(type)
+    };
+
+    private void CompleteAssistance(JobManager jobManager, Job assistanceJob, CrewMember requester, string action)
+    {
+        jobManager.CompleteJob(assistanceJob);
+        Crew.Psychology.RegisterHelpedAnotherCrewMember();
+        requester.Psychology.RegisterReceivedAssistance();
+        CurrentJob = null;
+        _currentPath = null;
+        _moveAccumulator = 0.0;
+        CurrentActivity = $"Helped {requester.Name}: {action}";
+    }
+
+    private void FailAssistance(CrewDecisionDiagnostic diagnostic, JobManager jobManager)
+    {
+        var assistanceJob = CurrentJob;
+        if (assistanceJob != null)
+        {
+            if (!assistanceJob.FailedAssistantCrewIds.Contains(Crew.Id))
+                assistanceJob.FailedAssistantCrewIds.Add(Crew.Id);
+            jobManager.ReleaseJob(assistanceJob);
+        }
+
+        LastDiagnostic = diagnostic;
+        CurrentJob = null;
+        _currentPath = null;
+        _moveAccumulator = 0.0;
+        CurrentActivity = $"Could not assist: {diagnostic.Reason}";
     }
 
     private void StartRetreat(ShipGrid grid, JobManager jobManager)
@@ -707,13 +957,17 @@ public sealed class CrewAI
         CurrentActivity = $"Retreating to safety at {_retreatTarget.Value}";
     }
 
-    private void RecordNavigationFailure(PathfindingResult result, GridCoord target)
+    private void RecordNavigationFailure(PathfindingResult result, GridCoord target, JobManager jobManager)
     {
         var diagnostic = result.Diagnostic with { Target = target };
-        RecordTaskFailure(diagnostic, CurrentJob);
+        RecordTaskFailure(diagnostic, CurrentJob, jobManager);
     }
 
-    private void RecordTaskFailure(CrewDecisionDiagnostic diagnostic, Job? failedJob = null)
+    private void RecordTaskFailure(
+        CrewDecisionDiagnostic diagnostic,
+        Job? failedJob,
+        JobManager jobManager,
+        IEnumerable<ItemType>? requiredItems = null)
     {
         _consecutiveTaskFailures++;
         Crew.Psychology.RegisterTaskFailure(_consecutiveTaskFailures);
@@ -730,7 +984,13 @@ public sealed class CrewAI
         {
             _deferredJobId = job.Id;
             _deferredJobTimer = 15.0;
-            CurrentActivity = $"Requesting assistance: {LastDiagnostic.UnderlyingReason ?? LastDiagnostic.Reason}";
+            var assistance = job.Type == JobType.AssistCrew
+                ? null
+                : jobManager.PostAssistanceRequest(Crew, job, LastDiagnostic, requiredItems);
+            _isRequestingAssistance = assistance != null;
+            CurrentActivity = _isRequestingAssistance
+                ? $"Requesting assistance: {LastDiagnostic.UnderlyingReason ?? LastDiagnostic.Reason}"
+                : $"Reconsidering repeated failure: {LastDiagnostic.UnderlyingReason ?? LastDiagnostic.Reason}";
         }
     }
 

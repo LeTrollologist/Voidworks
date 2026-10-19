@@ -40,10 +40,13 @@ The goal is a simulation where machinery, resources, atmosphere, and people depe
 ### Autonomous crew
 
 - Crew members with individual vitals and survival needs.
-- A* pathfinding around walls, doors, and hazards.
+- A* pathfinding around walls, doors, and hazards, with diagnostics that distinguish blocked routes from unsafe routes.
 - Prioritized jobs, job reservations, and autonomous equipment retrieval.
 - Emergency response routines for breach repair.
 - Food, water, and sleep routines for ongoing crew maintenance.
+- Persistent personality traits (courage, discipline, self-preservation, determination, and sociability) and changing psychological values (motivation, fear, stress, anger, and morale). They influence movement and work rates, personal-need priorities, hazard tolerance, and willingness to assist. Fatigue remains a separate physiological need, and psychological factors do not bypass physical or equipment constraints.
+- Crew assistance requests after repeated failures involving missing resources, blocked routes, or hazards beyond the requester’s tolerance. Eligible helpers can deliver required equipment, open a locked door, or take over the source task and retry it with their own route and equipment.
+- Assistance requests and crew psychology included in simulation save data, with current assistance status visible in the crew inspector.
 
 ### Engineering viewport
 
@@ -137,7 +140,7 @@ These loops create dependencies rather than isolated features. A broken coolant 
 
 ## Testing
 
-The latest reported milestone completed with **19 of 19 automated unit tests passing**. The suite covers behavior across the simulation systems, with earlier tests also covering atmospheric pressure exchange, hull breaches, emergency isolation, crew survival, pathfinding, and autonomous breach repair.
+The automated test suite covers simulation systems including atmosphere exchange, hull breaches, crew survival and psychology, route diagnostics, autonomous breach repair, assistance requests and responses, and save/load behavior.
 
 Run the test suite locally:
 

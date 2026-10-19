@@ -45,6 +45,12 @@ public sealed class CrewPsychology
         40.0,
         70.0);
 
+    public double AssistanceWillingness => Math.Clamp(
+        Sociability * 0.65 + Discipline * 0.2 + Motivation * 0.15
+        - Stress * 0.25 - Fear * 0.15 - Anger * 0.1,
+        0.0,
+        100.0);
+
     public CrewPsychology(string stableSeed)
     {
         uint state = StableHash(stableSeed);
@@ -130,6 +136,21 @@ public sealed class CrewPsychology
     {
         Stress = Adjust(Stress, 2.0);
         Anger = Adjust(Anger, 4.0);
+    }
+
+    public void RegisterHelpedAnotherCrewMember()
+    {
+        Morale = Adjust(Morale, 2.5);
+        Motivation = Adjust(Motivation, 1.5);
+    }
+
+    public void RegisterReceivedAssistance()
+    {
+        Fear = Adjust(Fear, -2.0);
+        Stress = Adjust(Stress, -7.0);
+        Anger = Adjust(Anger, -3.0);
+        Morale = Adjust(Morale, 5.0);
+        Motivation = Adjust(Motivation, 3.0);
     }
 
     public void Restore(

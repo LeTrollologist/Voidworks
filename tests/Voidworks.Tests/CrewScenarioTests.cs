@@ -130,11 +130,116 @@ public class CrewScenarioTests
         Assert.True(ai.IsRequestingAssistance);
         Assert.Equal(CrewDiagnosticReason.RepeatedTaskFailure, ai.LastDiagnostic?.Reason);
         Assert.Equal(CrewDiagnosticReason.ResourceUnavailable, ai.LastDiagnostic?.UnderlyingReason);
+        Assert.Contains(jobs.AssistanceJobs, job =>
+            job.TargetCrewId == crew.Id && job.AssistanceItemTypes.Contains(ItemType.EvaSuit));
 
         ai.Tick(grid, jobs, 0.1);
 
         Assert.Null(ai.CurrentJob);
         Assert.Contains("assistance", ai.CurrentActivity, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void CrewAI_AssistanceRequestDeliversMissingEquipment()
+    {
+        var grid = new ShipGrid(9, 5);
+        grid.BuildRoom(0, 0, 8, 4, TileType.HullWall);
+        var requester = new CrewMember("Miller", new GridCoord(1, 2), "Engineer");
+        var helper = new CrewMember("Chen", new GridCoord(6, 2), "Engineer");
+        var torch = new Item(ItemType.WeldingTorch, helper.Position);
+        Assert.True(helper.PickUp(torch));
+
+        var jobs = new JobManager();
+        var sourceTask = Job.CreateBreachRepair(new GridCoord(8, 2));
+        var diagnostic = new CrewDecisionDiagnostic(
+            CrewDiagnosticReason.ResourceUnavailable,
+            sourceTask.TargetCoord,
+            requester.Position,
+            null,
+            "A welding torch is unavailable.");
+        var assistRequest = jobs.PostAssistanceRequest(requester, sourceTask, diagnostic, [ItemType.WeldingTorch]);
+        var requesterAI = new CrewAI(requester);
+        var helperAI = new CrewAI(helper);
+        IReadOnlyList<CrewAI> crew = [requesterAI, helperAI];
+
+        for (int tick = 0; tick < 20 && helper.Inventory.Contains(torch); tick++)
+            helperAI.Tick(grid, jobs, 0.5, nearbyCrewCount: 1, allCrew: crew);
+
+        Assert.NotNull(assistRequest);
+        Assert.Contains(torch, requester.Inventory);
+        Assert.DoesNotContain(torch, helper.Inventory);
+        Assert.DoesNotContain(assistRequest, jobs.ActiveJobs);
+        Assert.True(requester.Psychology.Morale > 70.0);
+    }
+
+    [Fact]
+    public void CrewAI_AssistanceRequestOpensLockedDoorForBlockedCrew()
+    {
+        var grid = new ShipGrid(9, 5);
+        grid.BuildRoom(0, 0, 8, 4, TileType.HullWall);
+        grid[4, 1].Type = TileType.InteriorWall;
+        grid[4, 3].Type = TileType.InteriorWall;
+        var doorCoord = new GridCoord(4, 2);
+        grid.PlaceDoor(doorCoord.X, doorCoord.Y, DoorState.Locked);
+
+        var requester = new CrewMember("Miller", new GridCoord(1, 2), "Engineer");
+        var helper = new CrewMember("Chen", new GridCoord(2, 2), "Engineer");
+        var jobs = new JobManager();
+        var sourceTask = Job.CreateBreachRepair(new GridCoord(7, 2));
+        var diagnostic = new CrewDecisionDiagnostic(
+            CrewDiagnosticReason.BlockedByLockedDoor,
+            sourceTask.TargetCoord,
+            new GridCoord(3, 2),
+            doorCoord,
+            "The locked door blocks the available route.");
+        var assistRequest = jobs.PostAssistanceRequest(requester, sourceTask, diagnostic);
+        var requesterAI = new CrewAI(requester);
+        var helperAI = new CrewAI(helper);
+        IReadOnlyList<CrewAI> crew = [requesterAI, helperAI];
+
+        for (int tick = 0; tick < 20 && grid[doorCoord].DoorState == DoorState.Locked; tick++)
+            helperAI.Tick(grid, jobs, 0.5, nearbyCrewCount: 1, allCrew: crew);
+
+        Assert.NotNull(assistRequest);
+        Assert.Equal(DoorState.Open, grid[doorCoord].DoorState);
+        Assert.DoesNotContain(assistRequest, jobs.ActiveJobs);
+        Assert.Contains("opened the locked door", helperAI.CurrentActivity);
+    }
+
+    [Fact]
+    public void CrewAI_AssistanceRequestLetsAnotherCrewRetryAnUnreachableTask()
+    {
+        var grid = new ShipGrid(9, 5);
+        grid.BuildRoom(0, 0, 8, 4, TileType.HullWall);
+        for (int y = 1; y < 4; y++)
+            grid[4, y].Type = TileType.InteriorWall;
+
+        var requester = new CrewMember("Miller", new GridCoord(1, 2), "Engineer");
+        var helper = new CrewMember("Chen", new GridCoord(6, 2), "Engineer");
+        var item = new Item(ItemType.WeldingTorch, new GridCoord(7, 2));
+        var sourceTask = Job.CreateFetchItem(item, priority: 80);
+        var jobs = new JobManager();
+        jobs.AddItem(item);
+        jobs.PostJob(sourceTask);
+        var diagnostic = new CrewDecisionDiagnostic(
+            CrewDiagnosticReason.BlockedByObstacle,
+            item.Position,
+            new GridCoord(3, 2),
+            new GridCoord(4, 2),
+            "A solid divider blocks the route.");
+        var assistRequest = jobs.PostAssistanceRequest(requester, sourceTask, diagnostic);
+        var requesterAI = new CrewAI(requester);
+        var helperAI = new CrewAI(helper);
+        IReadOnlyList<CrewAI> crew = [requesterAI, helperAI];
+
+        helperAI.Tick(grid, jobs, 0.1, nearbyCrewCount: 0, allCrew: crew);
+        helperAI.Tick(grid, jobs, 0.1, nearbyCrewCount: 0, allCrew: crew);
+        helperAI.Tick(grid, jobs, 0.1, nearbyCrewCount: 0, allCrew: crew);
+
+        Assert.NotNull(assistRequest);
+        Assert.Contains(item, helper.Inventory);
+        Assert.DoesNotContain(assistRequest, jobs.ActiveJobs);
+        Assert.DoesNotContain(item, jobs.WorldItems);
     }
 
     [Fact]

@@ -1,4 +1,7 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
+using Voidworks.Sim.Crew;
 using Voidworks.Sim.Items;
 using Voidworks.Sim.Ship;
 
@@ -14,6 +17,11 @@ public sealed class Job
     public ItemType? DesiredItemType { get; set; }
     public int Priority { get; set; } // Higher number = higher priority
     public Guid? AssignedCrewId { get; set; }
+    public Guid? TargetCrewId { get; set; }
+    public Guid? SourceTaskJobId { get; set; }
+    public CrewDiagnosticReason? AssistanceReason { get; set; }
+    public List<ItemType> AssistanceItemTypes { get; } = new();
+    public List<Guid> FailedAssistantCrewIds { get; } = new();
     public double WorkRemainingSeconds { get; set; }
     public bool IsCompleted { get; set; }
     public bool IsCancelled { get; set; }
@@ -77,5 +85,33 @@ public sealed class Job
             TargetItem = ironOre,
             DesiredItemType = ItemType.IronOre
         };
+    }
+
+    public static Job CreateAssistCrew(
+        CrewMember requester,
+        Job? sourceTask,
+        CrewDecisionDiagnostic diagnostic,
+        IEnumerable<ItemType>? requiredItems = null)
+    {
+        CrewDiagnosticReason reason = diagnostic.Reason == CrewDiagnosticReason.RepeatedTaskFailure
+            ? diagnostic.UnderlyingReason ?? CrewDiagnosticReason.RepeatedTaskFailure
+            : diagnostic.Reason;
+        GridCoord target = reason == CrewDiagnosticReason.BlockedByLockedDoor && diagnostic.BlockingTile.HasValue
+            ? diagnostic.BlockingTile.Value
+            : requester.Position;
+        var job = new Job(
+            JobType.AssistCrew,
+            target,
+            priority: 120,
+            workSeconds: 0.0,
+            $"Assist {requester.Name}: {reason}")
+        {
+            TargetCrewId = requester.Id,
+            SourceTaskJobId = sourceTask?.Id,
+            AssistanceReason = reason
+        };
+        if (requiredItems != null)
+            job.AssistanceItemTypes.AddRange(requiredItems.Distinct());
+        return job;
     }
 }

@@ -444,6 +444,17 @@ public class SystemicFailuresAndScenariosTests
         jobManager.AddItem(ironOre);
         var refineJob = Job.CreateRefineOre(new GridCoord(6, 4), ironOre);
         jobManager.PostJob(refineJob);
+        var assistanceRequest = jobManager.PostAssistanceRequest(
+            crew,
+            refineJob,
+            new CrewDecisionDiagnostic(
+                CrewDiagnosticReason.ResourceUnavailable,
+                refineJob.TargetCoord,
+                crew.Position,
+                null,
+                "A welding torch is unavailable."),
+            [ItemType.WeldingTorch]);
+        Assert.NotNull(assistanceRequest);
 
         var sim = new SimulationState(grid, new AtmosphereSolver(), jobManager);
         sim.Machines.Add(reactor);
@@ -509,6 +520,11 @@ public class SystemicFailuresAndScenariosTests
         Assert.Equal(crewAi.CurrentJob?.Id, restoredSim.Crew[0].CurrentJob?.Id);
         Assert.Equal(crew.Id, restoredSim.Crew[0].Crew.Id);
         Assert.Equal(refineJob.Id, restoredSim.JobManager.ActiveJobs.Single(j => j.Type == JobType.RefineOre).Id);
+        var restoredAssistance = Assert.Single(restoredSim.JobManager.AssistanceJobs);
+        Assert.Equal(crew.Id, restoredAssistance.TargetCrewId);
+        Assert.Equal(refineJob.Id, restoredAssistance.SourceTaskJobId);
+        Assert.Equal(CrewDiagnosticReason.ResourceUnavailable, restoredAssistance.AssistanceReason);
+        Assert.Equal([ItemType.WeldingTorch], restoredAssistance.AssistanceItemTypes);
 
         // 4. Advance both simulations by 5.0 seconds and verify deterministic outputs
         for (int i = 0; i < 50; i++)

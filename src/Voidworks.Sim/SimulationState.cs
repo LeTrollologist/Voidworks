@@ -70,7 +70,7 @@ public sealed class SimulationState
                 other.Crew.Physiology.IsAlive && !other.Crew.Physiology.IsIncapacitated &&
                 Math.Abs(other.Crew.Position.X - c.Crew.Position.X) +
                 Math.Abs(other.Crew.Position.Y - c.Crew.Position.Y) <= 2);
-            c.Tick(Grid, JobManager, dt, nearbyCrewCount);
+            c.Tick(Grid, JobManager, dt, nearbyCrewCount, Crew);
         }
 
         // 7. Detect world emergencies (breaches, broken systems)
