@@ -7,6 +7,7 @@ using Voidworks.Sim;
 using Voidworks.Sim.Crew;
 using Voidworks.Sim.Items;
 using Voidworks.Sim.Machinery;
+using Voidworks.Sim.Navigation;
 using Voidworks.Sim.Persistence;
 using Voidworks.Sim.Ship;
 
@@ -33,6 +34,7 @@ public sealed class InspectionPanel
         RenderTopTelemetryBar(sim);
         RenderControlToolbar(sim, ref overlayMode);
         RenderInspectorSidebar(sim, selectedTile, selectedCrew, ref selectedMachine);
+        RenderCrewPathDebugPanel(sim);
     }
 
     private void RenderTopTelemetryBar(SimulationState sim)
@@ -144,8 +146,10 @@ public sealed class InspectionPanel
             if (ImGui.RadioButton("Plumbing", overlayMode == OverlayMode.Plumbing)) overlayMode = OverlayMode.Plumbing;
             ImGui.SameLine();
             if (ImGui.RadioButton("Hazards", overlayMode == OverlayMode.Hazards)) overlayMode = OverlayMode.Hazards;
+            ImGui.SameLine();
+            if (ImGui.RadioButton("Crew Paths", overlayMode == OverlayMode.CrewPaths)) overlayMode = OverlayMode.CrewPaths;
 
-            ImGui.SameLine(1030f);
+            ImGui.SameLine(1085f);
             if (ImGui.Button(" TRIGGER BREACH "))
             {
                 if (sim.Grid.IsInBounds(14, 3))
@@ -435,6 +439,64 @@ public sealed class InspectionPanel
             }
         }
         ImGui.End();
+    }
+
+    private void RenderCrewPathDebugPanel(SimulationState sim)
+    {
+        ImGui.SetNextWindowPos(new float2(10f, 560f), ImGuiCond.FirstUseEver);
+        ImGui.SetNextWindowSize(new float2(470f, 330f), ImGuiCond.FirstUseEver);
+
+        if (ImGui.Begin("Crew Path Debug"))
+        {
+            ImGui.TextDisabled("Select Crew Paths in the toolbar to draw routes over the ship.");
+            ImGui.Separator();
+
+            for (int i = 0; i < sim.Crew.Count; i++)
+            {
+                var ai = sim.Crew[i];
+                var crew = ai.Crew;
+                var route = new System.Collections.Generic.List<GridCoord> { crew.Position };
+                route.AddRange(ai.CurrentPath);
+                var diagnostics = AStarPathfinder.GetPathDiagnostics(sim.Grid, route, crew);
+
+                ImGui.TextColored(CrewPathPalette.GetUiColor(i),
+                    $"{crew.Name} ({crew.Role}) · {CrewPathPalette.GetColorName(i)} route");
+                ImGui.TextDisabled($"{ai.CurrentActivity}  |  Position {crew.Position}");
+
+                if (diagnostics.Steps == 0)
+                {
+                    ImGui.Text("Route: no active path");
+                }
+                else
+                {
+                    var previewCoords = route.Count <= 6
+                        ? route
+                        : route.Take(5).Append(route[^1]);
+                    ImGui.Text($"Route: {diagnostics.Steps} steps, cost {diagnostics.TotalCost:F1}");
+                    ImGui.Text(string.Join(" -> ", previewCoords));
+                }
+
+                ImGui.TextWrapped($"Hazard cost: {DescribeHazardCosts(diagnostics.HazardCosts)}");
+                ImGui.TextDisabled(
+                    $"Modifiers: role x{diagnostics.RoleSensitivity:F2}, condition x{diagnostics.ConditionMultiplier:F2}, EVA x{diagnostics.SuitProtection:F2}");
+                ImGui.Separator();
+            }
+        }
+
+        ImGui.End();
+    }
+
+    private static string DescribeHazardCosts(PathHazardCosts costs)
+    {
+        var causes = new System.Collections.Generic.List<string>();
+        if (costs.Vacuum > 0.01) causes.Add($"vacuum {costs.Vacuum:F1}");
+        if (costs.LowPressure > 0.01) causes.Add($"low pressure {costs.LowPressure:F1}");
+        if (costs.LowOxygen > 0.01) causes.Add($"low oxygen {costs.LowOxygen:F1}");
+        if (costs.ToxicGas > 0.01) causes.Add($"toxic gas {costs.ToxicGas:F1}");
+        if (costs.CarbonDioxide > 0.01) causes.Add($"CO2 {costs.CarbonDioxide:F1}");
+        if (costs.Temperature > 0.01) causes.Add($"temperature {costs.Temperature:F1}");
+
+        return causes.Count == 0 ? "none" : string.Join(", ", causes);
     }
 
     private static void RenderScenarioStatus(SimulationState sim)

@@ -7,5 +7,6 @@ public enum OverlayMode
     Oxygen,
     Hazards,
     Power,
-    Plumbing
+    Plumbing,
+    CrewPaths
 }

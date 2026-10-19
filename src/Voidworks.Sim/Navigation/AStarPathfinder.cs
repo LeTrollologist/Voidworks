@@ -154,11 +154,54 @@ public static class AStarPathfinder
         return cost;
     }
 
+    public static CrewPathDiagnostics GetPathDiagnostics(ShipGrid grid, IReadOnlyList<GridCoord> path, CrewMember crew)
+    {
+        double roleSensitivity = GetRoleSensitivity(crew);
+        double conditionMultiplier = GetConditionMultiplier(crew);
+        bool hasWorkingSuit = crew.IsEquippedWithSuit && crew.HasUsableOxygenSupply;
+        double suitProtection = hasWorkingSuit ? 0.25 : 1.0;
+        double hazardMultiplier = roleSensitivity * conditionMultiplier * suitProtection;
+
+        int steps = 0;
+        double doorPenalty = 0.0;
+        var hazardCosts = new PathHazardCosts();
+        for (int i = 1; i < path.Count; i++)
+        {
+            if (!grid.IsInBounds(path[i]))
+                continue;
+
+            steps++;
+            var tile = grid[path[i]];
+            if (tile.Type == TileType.Door && tile.DoorState == DoorState.Closed)
+                doorPenalty += 1.5;
+
+            hazardCosts += GetBaseHazardCosts(tile).Scale(hazardMultiplier);
+        }
+
+        return new CrewPathDiagnostics(
+            steps,
+            steps,
+            doorPenalty,
+            hazardCosts,
+            roleSensitivity,
+            conditionMultiplier,
+            suitProtection,
+            hasWorkingSuit);
+    }
+
     private static double GetHazardCost(ShipTile tile, CrewMember? crew)
     {
         if (crew == null)
             return 0.0;
 
+        return GetBaseHazardCosts(tile).Total
+            * GetRoleSensitivity(crew)
+            * GetConditionMultiplier(crew)
+            * GetSuitProtection(crew);
+    }
+
+    private static PathHazardCosts GetBaseHazardCosts(ShipTile tile)
+    {
         var atmosphere = tile.Atmosphere;
         double totalMoles = atmosphere.TotalMoles;
         double oxygenPartialPressure = totalMoles > 0.0
@@ -167,25 +210,28 @@ public static class AStarPathfinder
         double toxicFraction = totalMoles > 0.0 ? atmosphere.ToxicGas / totalMoles : 0.0;
         double co2Fraction = totalMoles > 0.0 ? atmosphere.CarbonDioxide / totalMoles : 0.0;
 
-        double hazard = 0.0;
+        double vacuum = 0.0;
+        double lowPressure = 0.0;
         if (tile.IsVacuumSink)
-            hazard += 30.0;
+            vacuum = 30.0;
         else
-            hazard += Math.Max(0.0, 70.0 - atmosphere.PressureKPa) * 0.15;
+            lowPressure = Math.Max(0.0, 70.0 - atmosphere.PressureKPa) * 0.15;
 
-        hazard += Math.Max(0.0, 16.0 - oxygenPartialPressure) * 0.5;
-        hazard += Math.Max(0.0, toxicFraction - 0.005) * 100.0;
-        hazard += Math.Max(0.0, co2Fraction - 0.05) * 40.0;
+        double lowOxygen = Math.Max(0.0, 16.0 - oxygenPartialPressure) * 0.5;
+        double toxicGas = Math.Max(0.0, toxicFraction - 0.005) * 100.0;
+        double carbonDioxide = Math.Max(0.0, co2Fraction - 0.05) * 40.0;
+        double temperature = 0.0;
 
         if (atmosphere.TemperatureK < 260.0)
-            hazard += (260.0 - atmosphere.TemperatureK) * 0.05;
+            temperature = (260.0 - atmosphere.TemperatureK) * 0.05;
         else if (atmosphere.TemperatureK > 330.0)
-            hazard += (atmosphere.TemperatureK - 330.0) * 0.05;
+            temperature = (atmosphere.TemperatureK - 330.0) * 0.05;
 
-        if (hazard <= 0.0)
-            return 0.0;
+        return new PathHazardCosts(vacuum, lowPressure, lowOxygen, toxicGas, carbonDioxide, temperature);
+    }
 
-        double roleSensitivity = crew.Role.Trim().ToLowerInvariant() switch
+    private static double GetRoleSensitivity(CrewMember crew)
+        => crew.Role.Trim().ToLowerInvariant() switch
         {
             "engineer" => 0.45,
             "pilot" => 0.75,
@@ -194,18 +240,19 @@ public static class AStarPathfinder
             _ => 1.0
         };
 
+    private static double GetConditionMultiplier(CrewMember crew)
+    {
         var physiology = crew.Physiology;
-        double physiologyMultiplier = 1.0
+        return 1.0
             + Math.Max(0.0, 100.0 - physiology.Health) * 0.025
             + Math.Max(0.0, 100.0 - physiology.OxygenSaturation) * 0.02
             + Math.Max(0.0, physiology.Fatigue) * 0.012
             + Math.Max(0.0, physiology.Thirst) * 0.007
             + Math.Max(0.0, physiology.Hunger) * 0.004;
-
-        bool hasWorkingSuit = crew.IsEquippedWithSuit && crew.HasUsableOxygenSupply;
-        double suitProtection = hasWorkingSuit ? 0.25 : 1.0;
-        return hazard * roleSensitivity * physiologyMultiplier * suitProtection;
     }
+
+    private static double GetSuitProtection(CrewMember crew)
+        => crew.IsEquippedWithSuit && crew.HasUsableOxygenSupply ? 0.25 : 1.0;
 
     private static double Heuristic(GridCoord a, GridCoord b)
     {

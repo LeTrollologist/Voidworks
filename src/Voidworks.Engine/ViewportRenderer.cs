@@ -82,6 +82,31 @@ public sealed class ViewportRenderer
             }
         }
 
+        if (overlayMode == OverlayMode.CrewPaths)
+        {
+            for (int crewIndex = 0; crewIndex < sim.Crew.Count; crewIndex++)
+            {
+                var crewAI = sim.Crew[crewIndex];
+                if (crewAI.CurrentPath.Count == 0)
+                    continue;
+
+                uint routeColor = CrewPathPalette.GetDrawColor(crewIndex);
+                var previous = TileCenter(crewAI.Crew.Position, camera, viewportCenter);
+                foreach (var coord in crewAI.CurrentPath)
+                {
+                    if (!grid.IsInBounds(coord))
+                        continue;
+
+                    var current = TileCenter(coord, camera, viewportCenter);
+                    drawList.AddLine(previous, current, routeColor, Math.Max(3f, camera.Zoom * 0.09f));
+                    drawList.AddCircleFilled(current, Math.Max(2.5f, camera.Zoom * 0.11f), routeColor);
+                    previous = current;
+                }
+
+                drawList.AddCircle(previous, Math.Max(5f, camera.Zoom * 0.18f), routeColor, 0, 2f);
+            }
+        }
+
         // 2. Draw power conduits / cables
         foreach (var cable in sim.Cables)
         {
@@ -303,8 +328,15 @@ public sealed class ViewportRenderer
             OverlayMode.Hazards => GetHazardColor(tile),
             OverlayMode.Power => 0xFF252018,
             OverlayMode.Plumbing => 0xFF182025,
+            OverlayMode.CrewPaths => ColorFloor,
             _ => ColorFloor
         };
+    }
+
+    private static float2 TileCenter(GridCoord coord, Camera2D camera, float2 viewportCenter)
+    {
+        var tileMin = camera.WorldToScreen(new float2(coord.X, coord.Y), viewportCenter);
+        return tileMin + new float2(camera.Zoom * 0.5f, camera.Zoom * 0.5f);
     }
 
     private uint GetPressureColor(double pressureKPa)
