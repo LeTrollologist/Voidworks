@@ -46,13 +46,17 @@ public sealed class JobManager
     public Job? ClaimHighestPriorityJob(Crew.CrewMember crew)
     {
         var job = _jobs
-            .Where(j => !j.IsCompleted && !j.IsCancelled && (j.AssignedCrewId == null || j.AssignedCrewId == crew.Id))
+            .Where(j => !j.IsCompleted && !j.IsCancelled &&
+                        (j.AssignedCrewId == null || j.AssignedCrewId == crew.Id) &&
+                        (j.TargetItem?.ReservedByCrewId == null || j.TargetItem.ReservedByCrewId == crew.Id))
             .OrderByDescending(j => j.Priority)
             .FirstOrDefault();
 
         if (job != null)
         {
             job.AssignedCrewId = crew.Id;
+            if (job.TargetItem != null && !job.TargetItem.IsCarried)
+                job.TargetItem.ReservedByCrewId = crew.Id;
         }
 
         return job;
@@ -60,7 +64,11 @@ public sealed class JobManager
 
     public void ReleaseJob(Job job)
     {
+        Guid? previousAssignee = job.AssignedCrewId;
         job.AssignedCrewId = null;
+        if (previousAssignee.HasValue && job.TargetItem?.ReservedByCrewId == previousAssignee &&
+            job.TargetItem.IsCarried == false)
+            job.TargetItem.ReservedByCrewId = null;
     }
 
     public void ScanWorldForEmergencies(ShipGrid grid)

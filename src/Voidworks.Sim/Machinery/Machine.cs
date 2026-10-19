@@ -5,7 +5,7 @@ namespace Voidworks.Sim.Machinery;
 
 public sealed class Machine
 {
-    public Guid Id { get; } = Guid.NewGuid();
+    public Guid Id { get; private set; } = Guid.NewGuid();
     public string Name { get; set; }
     public MachineType Type { get; }
     public GridCoord Position { get; set; }
@@ -15,11 +15,14 @@ public sealed class Machine
 
     // Power characteristics (in kW)
     public double PowerProductionKW { get; set; }
+    public double RatedPowerProductionKW { get; set; }
     public double PowerConsumptionKW { get; set; }
 
     // Battery storage (in kWh)
     public double BatteryCapacityKWh { get; set; }
     public double BatteryStoredKWh { get; set; }
+    public double BatteryMaxChargeKW { get; set; } = 50.0;
+    public double BatteryMaxDischargeKW { get; set; } = 50.0;
 
     // Life support rates (moles/second)
     public double O2GenerationRatePerSecond { get; set; } = 0.5;   // ~0.5 mol/s for oxygen generator
@@ -31,8 +34,22 @@ public sealed class Machine
     public double HeatCapacityJoulesPerKelvin { get; set; } = 100_000.0;
     public double MaxSafeTemperatureKelvin { get; set; } = 1000.0;
     public double ScramTemperatureKelvin { get; set; } = 1200.0;
+    public double ScramResetTemperatureKelvin { get; set; } = 600.0;
     public bool IsScrammed { get; set; } = false;
+    public bool CanResetScram => CoreTemperatureKelvin <= ScramResetTemperatureKelvin;
     public double RadiatorCoolingKW { get; set; } = 15.0;
+    public double CoolantPumpFlowRateLitersPerSecond { get; set; } = 0.5;
+
+    public bool TryResetScram()
+    {
+        if (!IsScrammed) return true;
+        if (!CanResetScram) return false;
+
+        IsScrammed = false;
+        IsOnline = true;
+        PowerProductionKW = RatedPowerProductionKW;
+        return true;
+    }
 
     // Mining Laser
     public GridCoord? TargetAsteroidCoord { get; set; }
@@ -69,6 +86,7 @@ public sealed class Machine
         {
             case MachineType.Reactor:
                 PowerProductionKW = 25.0;
+                RatedPowerProductionKW = PowerProductionKW;
                 PowerConsumptionKW = 0.0;
                 CoreTemperatureKelvin = 350.0;
                 HeatGenerationKW = 12.0;
@@ -111,6 +129,7 @@ public sealed class Machine
                 PowerProductionKW = 0.0;
                 PowerConsumptionKW = 0.5; // pump power
                 RadiatorCoolingKW = 15.0;
+                CoolantPumpFlowRateLitersPerSecond = 0.5;
                 break;
 
             case MachineType.FuelTank:
@@ -127,6 +146,12 @@ public sealed class Machine
                 FuelBurnRateKgPerSecond = 2.5;
                 break;
         }
+    }
+
+    internal void RestoreId(Guid id)
+    {
+        if (id == Guid.Empty) throw new ArgumentException("Machine identity must not be empty.", nameof(id));
+        Id = id;
     }
 
     public void Tick(ShipTile tile, double dt)
@@ -181,6 +206,7 @@ public sealed class Machine
             {
                 IsScrammed = true;
                 IsOnline = false; // Emergency trip!
+                PowerProductionKW = 0.0;
             }
         }
         else
@@ -211,26 +237,34 @@ public sealed class Machine
 
     private void TickHydroponics(ShipTile tile, double dt)
     {
-        if (WaterStoredLiters > 0.05)
+        if (WaterStoredLiters <= 0.0 || tile.IsVacuumSink)
+            return;
+
+        const double waterUseLitersPerSecond = 0.02;
+        const double co2UseMolesPerSecond = 0.05;
+        double waterConsumed = Math.Min(WaterStoredLiters, waterUseLitersPerSecond * dt);
+        WaterStoredLiters -= waterConsumed;
+
+        // Photosynthesis consumes CO2 and releases the same number of oxygen moles.
+        double co2Consumed = Math.Min(tile.Atmosphere.CarbonDioxide, co2UseMolesPerSecond * dt);
+        if (co2Consumed > 0.0)
         {
-            // Consume water slowly
-            WaterStoredLiters -= 0.02 * dt;
+            tile.Atmosphere.CarbonDioxide -= co2Consumed;
+            tile.Atmosphere.Oxygen += co2Consumed;
+        }
 
-            // Photosynthesis: convert CO2 to O2
-            if (!tile.IsVacuumSink && tile.Atmosphere.CarbonDioxide > 0.01)
-            {
-                double co2Consumed = Math.Min(tile.Atmosphere.CarbonDioxide, 0.05 * dt);
-                tile.Atmosphere.CarbonDioxide -= co2Consumed;
-                tile.Atmosphere.Oxygen += co2Consumed;
-            }
+        // Crops only grow while supplied with both water and CO2.
+        if (waterConsumed > 0.0 && co2Consumed > 0.0)
+        {
+            double waterSupportedSeconds = waterConsumed / waterUseLitersPerSecond;
+            double co2SupportedSeconds = co2Consumed / co2UseMolesPerSecond;
+            GrowthProgressSeconds += Math.Min(dt, Math.Min(waterSupportedSeconds, co2SupportedSeconds));
+        }
 
-            // Food production
-            GrowthProgressSeconds += dt;
-            if (GrowthProgressSeconds >= GrowthCycleSeconds)
-            {
-                GrowthProgressSeconds = 0.0;
-                FoodRationsProduced++;
-            }
+        while (GrowthProgressSeconds >= GrowthCycleSeconds)
+        {
+            GrowthProgressSeconds -= GrowthCycleSeconds;
+            FoodRationsProduced++;
         }
     }
 }

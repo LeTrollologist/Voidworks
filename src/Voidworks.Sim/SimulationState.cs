@@ -8,6 +8,7 @@ using Voidworks.Sim.Jobs;
 using Voidworks.Sim.Machinery;
 using Voidworks.Sim.Plumbing;
 using Voidworks.Sim.Power;
+using Voidworks.Sim.Scenarios;
 using Voidworks.Sim.Ship;
 
 namespace Voidworks.Sim;
@@ -22,6 +23,7 @@ public sealed class SimulationState
     public List<CrewAI> Crew { get; } = new();
     public List<Machine> Machines { get; } = new();
     public HashSet<GridCoord> Cables { get; } = new();
+    public Scenario? ActiveScenario { get; set; }
 
     public double SimTime { get; private set; }
     public bool IsPaused { get; set; } = false;
@@ -29,6 +31,7 @@ public sealed class SimulationState
 
     public const double FixedTickDt = 0.1; // 10 fixed ticks per simulation second
     private double _accumulator = 0.0;
+    internal double UpdateAccumulator => _accumulator;
 
     public SimulationState(ShipGrid grid, AtmosphereSolver solver, JobManager jobManager)
     {
@@ -69,11 +72,27 @@ public sealed class SimulationState
         // 7. Detect world emergencies (breaches, broken systems)
         JobManager.ScanWorldForEmergencies(Grid);
 
+        // 8. Update active scenario objectives and win/loss conditions
+        ActiveScenario?.Update(this, dt);
+
         SimTime += dt;
+    }
+
+    internal void RestoreClock(double simTime, double updateAccumulator)
+    {
+        if (!double.IsFinite(simTime) || simTime < 0.0)
+            throw new ArgumentOutOfRangeException(nameof(simTime));
+        if (!double.IsFinite(updateAccumulator) || updateAccumulator < 0.0)
+            throw new ArgumentOutOfRangeException(nameof(updateAccumulator));
+
+        SimTime = simTime;
+        _accumulator = updateAccumulator;
     }
 
     private void TickIndustrialLogistics(double dt)
     {
+        PostOreDeliveryJobs();
+
         foreach (var m in Machines)
         {
             if (!m.IsOnline || !m.IsPowered) continue;
@@ -145,6 +164,22 @@ public sealed class SimulationState
                     JobManager.AddItem(new Item(ItemType.FoodRation, m.Position));
                 }
             }
+        }
+    }
+
+    private void PostOreDeliveryJobs()
+    {
+        var smelters = Machines.Where(m => m.Type == MachineType.SmelterRefinery && m.IsOnline).ToList();
+        foreach (var smelter in smelters)
+        {
+            var ore = JobManager.WorldItems
+                .Where(item => item.Type == ItemType.IronOre && item.IsAvailable)
+                .OrderBy(item => Math.Abs(item.Position.X - smelter.Position.X) + Math.Abs(item.Position.Y - smelter.Position.Y))
+                .FirstOrDefault(item => !JobManager.ActiveJobs.Any(job =>
+                    job.Type == JobType.RefineOre && job.TargetItem?.Id == item.Id));
+
+            if (ore != null)
+                JobManager.PostJob(Job.CreateRefineOre(smelter.Position, ore));
         }
     }
 

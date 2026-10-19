@@ -8,7 +8,7 @@ namespace Voidworks.Sim.Crew;
 
 public sealed class CrewMember
 {
-    public Guid Id { get; } = Guid.NewGuid();
+    public Guid Id { get; private set; } = Guid.NewGuid();
     public string Name { get; set; }
     public GridCoord Position { get; set; }
     public string Role { get; set; } = "Generalist";
@@ -27,6 +27,12 @@ public sealed class CrewMember
         Name = name;
         Position = initialPosition;
         Role = role;
+    }
+
+    internal void RestoreId(Guid id)
+    {
+        if (id == Guid.Empty) throw new ArgumentException("Crew identity must not be empty.", nameof(id));
+        Id = id;
     }
 
     public bool HasItem(ItemType type) => Inventory.Any(i => i.Type == type);

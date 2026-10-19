@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using Brutal.GlfwApi;
 using Brutal.ImGuiApi;
@@ -8,6 +9,7 @@ using Brutal.Numerics;
 using Voidworks.Sim;
 using Voidworks.Sim.Crew;
 using Voidworks.Sim.Machinery;
+using Voidworks.Sim.Persistence;
 using Voidworks.Sim.Ship;
 
 namespace Voidworks.Engine;
@@ -179,6 +181,28 @@ public sealed class EngineApp
 
             // Render interactive UI panels
             _ui.Render(sim, ref _overlayMode, ref _selectedTile, ref _selectedCrew, ref _selectedMachine);
+            if (_ui.LoadRequested)
+            {
+                try
+                {
+                    sim = SimulationSerializer.LoadFromFile(Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                        "Voidworks",
+                        "ship-save.json"));
+                    _selectedCrew = sim.Crew.FirstOrDefault()?.Crew;
+                    _selectedMachine = null;
+                    _selectedTile = _selectedCrew?.Position;
+                    _ui.SetPersistenceStatus("Ship loaded.");
+                }
+                catch (Exception ex)
+                {
+                    _ui.SetPersistenceStatus($"Load failed: {ex.Message}");
+                }
+                finally
+                {
+                    _ui.ClearLoadRequest();
+                }
+            }
 
             // 4. Render and Swap
             ImGui.Render();

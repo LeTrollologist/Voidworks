@@ -6,7 +6,7 @@ namespace Voidworks.Sim.Jobs;
 
 public sealed class Job
 {
-    public Guid Id { get; } = Guid.NewGuid();
+    public Guid Id { get; private set; } = Guid.NewGuid();
     public string Name { get; set; }
     public JobType Type { get; }
     public GridCoord TargetCoord { get; set; }
@@ -25,6 +25,12 @@ public sealed class Job
         Priority = priority;
         WorkRemainingSeconds = workSeconds;
         Name = name ?? type.ToString();
+    }
+
+    internal void RestoreId(Guid id)
+    {
+        if (id == Guid.Empty) throw new ArgumentException("Job identity must not be empty.", nameof(id));
+        Id = id;
     }
 
     public static Job CreateBreachRepair(GridCoord breachCoord)

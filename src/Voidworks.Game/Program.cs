@@ -8,7 +8,25 @@ using Voidworks.Sim.Items;
 using Voidworks.Sim.Jobs;
 using Voidworks.Sim.Machinery;
 using Voidworks.Sim.Plumbing;
+using Voidworks.Sim.Scenarios;
 using Voidworks.Sim.Ship;
+
+bool forceConsole = args.Contains("--console", StringComparer.OrdinalIgnoreCase) ||
+                    args.Contains("--headless", StringComparer.OrdinalIgnoreCase);
+string? requestedScenarioId = null;
+for (int i = 0; i < args.Length; i++)
+{
+    if (args[i].Equals("--scenario", StringComparison.OrdinalIgnoreCase))
+    {
+        if (i + 1 >= args.Length)
+            throw new ArgumentException("Expected a scenario id after --scenario.");
+        requestedScenarioId = args[++i];
+    }
+    else if (args[i].StartsWith("--scenario=", StringComparison.OrdinalIgnoreCase))
+    {
+        requestedScenarioId = args[i]["--scenario=".Length..];
+    }
+}
 
 Console.WriteLine("==================================================================");
 Console.WriteLine("                 VOIDWORKS - THE LIVING HULL                      ");
@@ -115,12 +133,18 @@ sim.Crew.Add(new CrewAI(engineer));
 sim.Crew.Add(new CrewAI(botanist));
 sim.Crew.Add(new CrewAI(pilot));
 
+if (requestedScenarioId != null)
+{
+    var scenario = ScenarioCatalog.CreateById(requestedScenarioId)
+        ?? throw new ArgumentException($"Unknown scenario '{requestedScenarioId}'. Choose derelict-crisis, asteroid-expedition, or hull-breach.");
+    scenario.Setup(sim);
+    sim.ActiveScenario = scenario;
+    Console.WriteLine($"[Scenario] {scenario.Title}: {scenario.Description}");
+}
+
 Console.WriteLine("[Status] Ship power grid, plumbing conduits, life support, and industry online.");
 Console.WriteLine($"[Status] Crew Complement: {engineer.Name} ({engineer.Role}), {botanist.Name} ({botanist.Role}), {pilot.Name} ({pilot.Role}).");
 Console.WriteLine("[Status] Exterior asteroid field detected off starboard bow (Iron & Ice ore).");
-
-// Check if running in headless / console mode
-bool forceConsole = args.Contains("--console") || args.Contains("--headless");
 
 if (!forceConsole)
 {
@@ -138,6 +162,21 @@ if (!forceConsole)
         Console.WriteLine($"[Window Warning] Could not launch graphical window ({ex.Message}).");
         Console.WriteLine("[Window Warning] Falling back to automated headless console simulation...\n");
     }
+}
+
+if (sim.ActiveScenario != null)
+{
+    var scenario = sim.ActiveScenario;
+    Console.WriteLine($"[Scenario] Running {scenario.Title} in headless mode.");
+    double duration = scenario.TimeLimitSeconds ?? 30.0;
+    while (!scenario.IsCompleted && !scenario.IsFailed && sim.SimTime < duration)
+        sim.Step(SimulationState.FixedTickDt);
+
+    string result = scenario.IsCompleted
+        ? "Scenario complete."
+        : $"Scenario failed: {scenario.FailureReason ?? "time limit reached"}";
+    Console.WriteLine($"[T+{sim.SimTime:F1}s] {result}");
+    return;
 }
 
 // Fallback / headless console runner:

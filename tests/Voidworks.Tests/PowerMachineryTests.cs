@@ -74,6 +74,51 @@ public class PowerMachineryTests
     }
 
     [Fact]
+    public void CableOverload_ShedsIndustrialLoadBeforeLifeSupport()
+    {
+        var grid = new ShipGrid(8, 8);
+        grid.BuildRoom(1, 1, 6, 6, TileType.HullWall);
+
+        var reactor = new Machine(MachineType.Reactor, new GridCoord(2, 2));
+        var o2Gen = new Machine(MachineType.OxygenGenerator, new GridCoord(3, 2));
+        var smelter = new Machine(MachineType.SmelterRefinery, new GridCoord(4, 2));
+        var machines = new List<Machine> { reactor, o2Gen, smelter };
+        var cables = new HashSet<GridCoord> { new(3, 2) };
+        var powerSolver = new PowerGridSolver { CableCapacityKW = 6.0 };
+
+        powerSolver.Tick(grid, machines, cables, 0.1);
+
+        Assert.True(o2Gen.IsPowered);
+        Assert.False(smelter.IsPowered);
+        Assert.Equal(6.0, powerSolver.TotalUnservedDemandKW);
+        Assert.Equal(19.0, powerSolver.TotalCurtailedGenerationKW);
+    }
+
+    [Fact]
+    public void BatteryDischargeRateLimit_PreservesEnergyWhenLoadCannotBeServed()
+    {
+        var grid = new ShipGrid(8, 8);
+        grid.BuildRoom(1, 1, 6, 6, TileType.HullWall);
+
+        var reactor = new Machine(MachineType.Reactor, new GridCoord(2, 2)) { IsOnline = false };
+        var battery = new Machine(MachineType.Battery, new GridCoord(3, 2))
+        {
+            BatteryStoredKWh = 0.5,
+            BatteryMaxDischargeKW = 1.0
+        };
+        var scrubber = new Machine(MachineType.CarbonScrubber, new GridCoord(4, 2));
+        var machines = new List<Machine> { reactor, battery, scrubber };
+        var cables = new HashSet<GridCoord> { new(2, 2), new(3, 2), new(4, 2) };
+        var powerSolver = new PowerGridSolver();
+
+        powerSolver.Tick(grid, machines, cables, 0.1);
+
+        Assert.False(scrubber.IsPowered);
+        Assert.Equal(0.5, battery.BatteryStoredKWh);
+        Assert.Equal(2.0, powerSolver.TotalUnservedDemandKW);
+    }
+
+    [Fact]
     public void ReactorOff_BatteryDischarges_MaintainsPowerUntilDepleted()
     {
         var grid = new ShipGrid(8, 8);

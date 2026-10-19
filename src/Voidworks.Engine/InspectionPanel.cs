@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Linq;
 using Brutal.ImGuiApi;
 using Brutal.Numerics;
@@ -6,12 +7,21 @@ using Voidworks.Sim;
 using Voidworks.Sim.Crew;
 using Voidworks.Sim.Items;
 using Voidworks.Sim.Machinery;
+using Voidworks.Sim.Persistence;
 using Voidworks.Sim.Ship;
 
 namespace Voidworks.Engine;
 
 public sealed class InspectionPanel
 {
+    private static readonly string SavePath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "Voidworks",
+        "ship-save.json");
+
+    private string _persistenceStatus = "Save file: Local AppData\\Voidworks\\ship-save.json";
+    public bool LoadRequested { get; private set; }
+
     public void Render(
         SimulationState sim,
         ref OverlayMode overlayMode,
@@ -19,6 +29,7 @@ public sealed class InspectionPanel
         ref CrewMember? selectedCrew,
         ref Machine? selectedMachine)
     {
+        LoadRequested = false;
         RenderTopTelemetryBar(sim);
         RenderControlToolbar(sim, ref overlayMode);
         RenderInspectorSidebar(sim, selectedTile, selectedCrew, ref selectedMachine);
@@ -158,6 +169,10 @@ public sealed class InspectionPanel
 
         if (ImGui.Begin("Inspector Panel", ImGuiWindowFlags.NoCollapse))
         {
+            RenderPersistenceControls(sim);
+            RenderScenarioStatus(sim);
+            RenderCoolantStatus(sim);
+
             if (selectedTile.HasValue)
             {
                 var machOnTile = sim.Machines.FirstOrDefault(m => m.Position == selectedTile.Value);
@@ -191,11 +206,18 @@ public sealed class InspectionPanel
 
                     if (selectedMachine.IsScrammed)
                     {
-                        ImGui.TextColored(new float4(1.0f, 0.2f, 0.2f, 1.0f), "SCRAM STATUS: EMERGENCY REACTOR TRIP (OVERHEAT)");
-                        if (ImGui.Button("Reset SCRAM & Restart"))
+                        if (selectedMachine.CanResetScram)
                         {
-                            selectedMachine.IsScrammed = false;
-                            selectedMachine.IsOnline = true;
+                            ImGui.TextColored(new float4(1.0f, 0.6f, 0.2f, 1.0f), "CORE COOLED: READY FOR RESTART");
+                            if (ImGui.Button("Reset SCRAM & Restart Reactor"))
+                            {
+                                selectedMachine.TryResetScram();
+                            }
+                        }
+                        else
+                        {
+                            ImGui.TextColored(new float4(1.0f, 0.2f, 0.2f, 1.0f), $"SCRAM LOCKOUT: CORE TOO HOT ({selectedMachine.CoreTemperatureKelvin:F0} K > {selectedMachine.ScramResetTemperatureKelvin:F0} K)");
+                            ImGui.TextDisabled("Circulate coolant to dissipate heat before restart.");
                         }
                     }
                 }
@@ -414,4 +436,77 @@ public sealed class InspectionPanel
         }
         ImGui.End();
     }
+
+    private static void RenderScenarioStatus(SimulationState sim)
+    {
+        var scenario = sim.ActiveScenario;
+        if (scenario == null) return;
+
+        ImGui.TextColored(new float4(1.0f, 0.8f, 0.2f, 1.0f), $"SCENARIO: {scenario.Title.ToUpperInvariant()}");
+        ImGui.Text(scenario.Description);
+
+        if (scenario.TimeLimitSeconds.HasValue)
+        {
+            double remaining = Math.Max(0.0, scenario.TimeLimitSeconds.Value - scenario.ElapsedSeconds);
+            ImGui.Text($"Time remaining: {remaining:F0}s");
+        }
+
+        foreach (var objective in scenario.Objectives)
+        {
+            string status = objective.IsCompleted ? "[DONE]" : objective.IsFailed ? "[FAILED]" : "[ ]";
+            ImGui.BulletText($"{status} {objective.Title}");
+        }
+
+        if (scenario.IsCompleted)
+            ImGui.TextColored(new float4(0.2f, 1.0f, 0.4f, 1.0f), "MISSION COMPLETE");
+        else if (scenario.IsFailed)
+            ImGui.TextColored(new float4(1.0f, 0.2f, 0.2f, 1.0f), $"MISSION FAILED: {scenario.FailureReason ?? "unspecified failure"}");
+
+        ImGui.Separator();
+    }
+
+    private static void RenderCoolantStatus(SimulationState sim)
+    {
+        var plumbing = sim.PlumbingSolver;
+        double capacity = Math.Max(0.0, plumbing.CoolantCapacityLiters);
+        double fill = capacity > 0.0 ? (float)(plumbing.CoolantStoredLiters / capacity) : 0.0;
+
+        ImGui.TextColored(new float4(0.4f, 0.8f, 1.0f, 1.0f), "COOLANT SYSTEM");
+        ImGui.ProgressBar((float)Math.Clamp(fill, 0.0, 1.0), new float2(280f, 18f),
+            $"{plumbing.CoolantStoredLiters:F1} / {capacity:F1} L");
+        ImGui.Text($"Ship reserve: {plumbing.CoolantReserveLiters:F1} L");
+        if (ImGui.Button("Transfer Coolant (+10 L)"))
+            plumbing.TransferCoolantFromReserve(10.0);
+        ImGui.Text($"Circulation: {plumbing.TotalCoolantFlowRateLitersPerSecond:F2} L/s");
+        if (plumbing.TotalCoolantLeakRateLitersPerSecond > 0.0)
+            ImGui.TextColored(new float4(1.0f, 0.3f, 0.2f, 1.0f), $"Loop leak: {plumbing.TotalCoolantLeakRateLitersPerSecond:F2} L/s");
+        ImGui.Text($"Propellant flow: {plumbing.TotalPropellantFlowRateKgPerSec:F2} kg/s");
+        ImGui.Separator();
+    }
+
+    private void RenderPersistenceControls(SimulationState sim)
+    {
+        if (ImGui.Button("SAVE SHIP"))
+        {
+            try
+            {
+                SimulationSerializer.SaveToFile(sim, SavePath);
+                _persistenceStatus = "Ship saved.";
+            }
+            catch (Exception ex)
+            {
+                _persistenceStatus = $"Save failed: {ex.Message}";
+            }
+        }
+
+        ImGui.SameLine();
+        if (ImGui.Button("LOAD SHIP"))
+            LoadRequested = true;
+
+        ImGui.TextDisabled(_persistenceStatus);
+        ImGui.Separator();
+    }
+
+    public void ClearLoadRequest() => LoadRequested = false;
+    public void SetPersistenceStatus(string message) => _persistenceStatus = message;
 }

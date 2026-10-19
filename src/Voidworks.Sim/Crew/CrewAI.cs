@@ -17,10 +17,30 @@ public sealed class CrewAI
     public CrewMember Crew { get; }
     public Job? CurrentJob { get; private set; }
     public string CurrentActivity { get; private set; } = "Idle";
+    public IReadOnlyList<Job> PendingSubJobs => _subJobs.ToArray();
+    public IReadOnlyList<GridCoord> CurrentPath => _currentPath == null ? Array.Empty<GridCoord>() : _currentPath;
+    public double MovementAccumulator => _moveAccumulator;
 
     public CrewAI(CrewMember crew)
     {
         Crew = crew;
+    }
+
+    internal void RestoreExecutionState(
+        Job? currentJob,
+        IEnumerable<Job> pendingSubJobs,
+        IEnumerable<GridCoord> currentPath,
+        double movementAccumulator,
+        string currentActivity)
+    {
+        CurrentJob = currentJob;
+        _subJobs.Clear();
+        foreach (var job in pendingSubJobs)
+            _subJobs.Enqueue(job);
+        _currentPath = currentPath.ToList();
+        if (_currentPath.Count == 0) _currentPath = null;
+        _moveAccumulator = Math.Max(0.0, movementAccumulator);
+        CurrentActivity = currentActivity;
     }
 
     public void Tick(ShipGrid grid, JobManager jobManager, double dt)
@@ -51,6 +71,26 @@ public sealed class CrewAI
                 CurrentJob = null;
             }
             return;
+        }
+
+        // Emergency jobs interrupt routine work before the crew spends another tick
+        // following a lower-priority route or performing its current task.
+        if (CurrentJob != null && CurrentJob.Priority < 100)
+        {
+            var emergency = jobManager.ActiveJobs
+                .Where(j => !j.IsCompleted && !j.IsCancelled && j.Priority >= 100 &&
+                            (j.AssignedCrewId == null || j.AssignedCrewId == Crew.Id))
+                .OrderByDescending(j => j.Priority)
+                .FirstOrDefault();
+
+            if (emergency != null)
+            {
+                jobManager.ReleaseJob(CurrentJob);
+                CurrentJob = null;
+                _subJobs.Clear();
+                _currentPath = null;
+                _moveAccumulator = 0.0;
+            }
         }
 
         // 2. Advance active movement along path
@@ -243,6 +283,10 @@ public sealed class CrewAI
                 ExecuteRepairBreach(grid, jobManager, dt);
                 break;
 
+            case JobType.RefineOre:
+                ExecuteRefineOre(grid, jobManager);
+                break;
+
             case JobType.EatFood:
                 ExecuteEatFood(jobManager, dt);
                 break;
@@ -292,6 +336,78 @@ public sealed class CrewAI
         path.RemoveAt(0);
         _currentPath = path;
         CurrentActivity = $"Navigating to {item.Name}";
+    }
+
+    private void ExecuteRefineOre(ShipGrid grid, JobManager jobManager)
+    {
+        var job = CurrentJob!;
+        var ore = job.TargetItem;
+        if (ore == null || ore.Type != ItemType.IronOre)
+        {
+            jobManager.CompleteJob(job);
+            CurrentJob = null;
+            return;
+        }
+
+        if (!Crew.Inventory.Contains(ore))
+        {
+            if (ore.IsCarried || (ore.ReservedByCrewId.HasValue && ore.ReservedByCrewId != Crew.Id))
+            {
+                jobManager.ReleaseJob(job);
+                CurrentJob = null;
+                return;
+            }
+
+            int oreDistance = Math.Abs(Crew.Position.X - ore.Position.X) + Math.Abs(Crew.Position.Y - ore.Position.Y);
+            if (oreDistance <= 1)
+            {
+                ore.ReservedByCrewId = null;
+                if (Crew.PickUp(ore))
+                {
+                    ore.ReservedByCrewId = Crew.Id;
+                    jobManager.RemoveItem(ore);
+                    CurrentActivity = $"Picked up {ore.Name} for refining";
+                }
+                return;
+            }
+
+            var pathToOre = AStarPathfinder.FindPath(grid, Crew.Position, ore.Position, Crew.IsEquippedWithSuit);
+            if (pathToOre == null || pathToOre.Count <= 1)
+            {
+                jobManager.ReleaseJob(job);
+                CurrentJob = null;
+                return;
+            }
+
+            pathToOre.RemoveAt(0);
+            _currentPath = pathToOre;
+            CurrentActivity = $"Navigating to {ore.Name}";
+            return;
+        }
+
+        int smelterDistance = Math.Abs(Crew.Position.X - job.TargetCoord.X) + Math.Abs(Crew.Position.Y - job.TargetCoord.Y);
+        if (smelterDistance <= 1)
+        {
+            Crew.Drop(ore, job.TargetCoord);
+            ore.ReservedByCrewId = null;
+            jobManager.AddItem(ore);
+            jobManager.CompleteJob(job);
+            CurrentActivity = $"Delivered {ore.Name} to the refinery";
+            CurrentJob = null;
+            return;
+        }
+
+        var pathToSmelter = AStarPathfinder.FindPath(grid, Crew.Position, job.TargetCoord, Crew.IsEquippedWithSuit);
+        if (pathToSmelter == null || pathToSmelter.Count <= 1)
+        {
+            jobManager.ReleaseJob(job);
+            CurrentJob = null;
+            return;
+        }
+
+        pathToSmelter.RemoveAt(0);
+        _currentPath = pathToSmelter;
+        CurrentActivity = "Delivering iron ore to the refinery";
     }
 
     private void ExecuteEquipSuit()

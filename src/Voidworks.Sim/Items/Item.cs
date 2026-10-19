@@ -5,7 +5,7 @@ namespace Voidworks.Sim.Items;
 
 public sealed class Item
 {
-    public Guid Id { get; } = Guid.NewGuid();
+    public Guid Id { get; private set; } = Guid.NewGuid();
     public ItemType Type { get; }
     public string Name { get; }
     public double WeightKg { get; set; }
@@ -63,5 +63,11 @@ public sealed class Item
         {
             HydrationValue = 50.0;
         }
+    }
+
+    internal void RestoreId(Guid id)
+    {
+        if (id == Guid.Empty) throw new ArgumentException("Item identity must not be empty.", nameof(id));
+        Id = id;
     }
 }

@@ -15,6 +15,36 @@ namespace Voidworks.Tests;
 public class IndustrialPlumbingAndNeedsTests
 {
     [Fact]
+    public void Hydroponics_ConsumesWaterAndCo2_ProducesOxygenAndFoodOnlyWithInputs()
+    {
+        var grid = new ShipGrid(6, 6);
+        grid.BuildRoom(1, 1, 4, 4, TileType.HullWall);
+        var tile = grid[2, 2];
+        tile.Atmosphere.Oxygen = 2.0;
+        tile.Atmosphere.CarbonDioxide = 1.0;
+
+        var hydroponics = new Machine(MachineType.HydroponicsBay, tile.Coord)
+        {
+            WaterStoredLiters = 1.0,
+            GrowthCycleSeconds = 0.5,
+            IsPowered = true
+        };
+
+        hydroponics.Tick(tile, 0.5);
+
+        Assert.Equal(0.99, hydroponics.WaterStoredLiters, precision: 6);
+        Assert.Equal(0.975, tile.Atmosphere.CarbonDioxide, precision: 6);
+        Assert.Equal(2.025, tile.Atmosphere.Oxygen, precision: 6);
+        Assert.Equal(3.0, tile.Atmosphere.Oxygen + tile.Atmosphere.CarbonDioxide, precision: 6);
+        Assert.Equal(1, hydroponics.FoodRationsProduced);
+
+        hydroponics.WaterStoredLiters = 0.0;
+        tile.Atmosphere.CarbonDioxide = 1.0;
+        hydroponics.Tick(tile, 5.0);
+        Assert.Equal(1, hydroponics.FoodRationsProduced);
+    }
+
+    [Fact]
     public void AsteroidMining_ProducesRawIronAndIceOre()
     {
         var grid = new ShipGrid(10, 10);
@@ -197,6 +227,42 @@ public class IndustrialPlumbingAndNeedsTests
 
         Assert.Equal(98.0, tank.FuelStoredKg);
         Assert.True(engine.IsFiring);
+    }
+
+    [Fact]
+    public void PropellantPipeCapacity_LimitsFuelTransferAndFlamesOutAnOversubscribedEngine()
+    {
+        var grid = new ShipGrid(10, 8);
+        var tank = new Machine(MachineType.FuelTank, new GridCoord(2, 2)) { FuelStoredKg = 100.0 };
+        var engine = new Machine(MachineType.MainEngine, new GridCoord(5, 2))
+        {
+            IsOnline = true,
+            IsPowered = true,
+            IsFiring = true,
+            FuelBurnRateKgPerSecond = 2.0
+        };
+        var plumbing = new PlumbingGridSolver { PropellantPipeCapacityKgPerSecond = 0.5 };
+        for (int x = 2; x <= 5; x++) plumbing.PropellantPipes.Add(new GridCoord(x, 2));
+
+        plumbing.Tick(grid, new List<Machine> { tank, engine }, 1.0);
+
+        Assert.Equal(99.5, tank.FuelStoredKg);
+        Assert.Equal(0.5, plumbing.TotalPropellantFlowRateKgPerSec);
+        Assert.False(engine.IsFiring);
+
+        // With adequate line capacity, the same engine receives its full burn rate.
+        plumbing.PropellantPipeCapacityKgPerSecond = 5.0;
+        engine.IsFiring = true;
+        plumbing.Tick(grid, new List<Machine> { tank, engine }, 1.0);
+        Assert.Equal(97.5, tank.FuelStoredKg);
+        Assert.Equal(2.0, plumbing.TotalPropellantFlowRateKgPerSec);
+        Assert.True(engine.IsFiring);
+
+        plumbing.PropellantPipes.Remove(new GridCoord(4, 2));
+        engine.IsFiring = true;
+        plumbing.Tick(grid, new List<Machine> { tank, engine }, 1.0);
+        Assert.False(engine.IsFiring);
+        Assert.Equal(0.0, plumbing.TotalPropellantFlowRateKgPerSec);
     }
 
     [Fact]
