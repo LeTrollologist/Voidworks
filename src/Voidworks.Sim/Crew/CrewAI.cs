@@ -274,7 +274,7 @@ public sealed class CrewAI
         bool emergencyPlanFailed = false;
         // Assistance requests outrank routine assignments. Critical retreat and
         // physiology handling have already run before reaching task selection.
-        var assistanceJob = jobManager.ClaimAssistanceRequest(Crew);
+        var assistanceJob = jobManager.ClaimAssistanceRequest(Crew, grid);
         if (assistanceJob != null)
         {
             CurrentJob = assistanceJob;
@@ -284,7 +284,8 @@ public sealed class CrewAI
         // First, check critical emergencies from the world board (breaches)
         var emergencyJob = jobManager.ClaimHighestPriorityJob(
             Crew,
-            _deferredJobTimer > 0.0 ? _deferredJobId : null);
+            _deferredJobTimer > 0.0 ? _deferredJobId : null,
+            grid);
         if (emergencyJob != null && emergencyJob.Priority >= 100)
         {
             if (emergencyJob.Type == JobType.RepairBreach)

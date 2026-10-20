@@ -94,6 +94,77 @@ public class CrewScenarioTests
     }
 
     [Fact]
+    public void JobScheduling_AssignsNearestRepairFirst_AndPreventsDuplicateClaims()
+    {
+        var grid = new ShipGrid(12, 5);
+        grid.BuildRoom(1, 1, 10, 3, TileType.HullWall);
+        var jobs = new JobManager();
+        var farRepair = Job.CreateBreachRepair(new GridCoord(8, 2));
+        var nearRepair = Job.CreateBreachRepair(new GridCoord(3, 2));
+        jobs.PostJob(farRepair); // Posting order must not pull a nearby crew across the ship.
+        jobs.PostJob(nearRepair);
+
+        var westCrew = new CrewMember("West", new GridCoord(2, 2));
+        var eastCrew = new CrewMember("East", new GridCoord(9, 2));
+
+        var westAssignment = jobs.ClaimHighestPriorityJob(westCrew, grid: grid);
+        var eastAssignment = jobs.ClaimHighestPriorityJob(eastCrew, grid: grid);
+
+        Assert.Same(nearRepair, westAssignment);
+        Assert.Same(farRepair, eastAssignment);
+        Assert.Equal(westCrew.Id, nearRepair.AssignedCrewId);
+        Assert.Equal(eastCrew.Id, farRepair.AssignedCrewId);
+
+        var extraCrew = new CrewMember("Extra", new GridCoord(5, 2));
+        Assert.Null(jobs.ClaimHighestPriorityJob(extraCrew, grid: grid));
+    }
+
+    [Fact]
+    public void JobScheduling_SendsHelperToReachableAssistanceRequest()
+    {
+        var grid = new ShipGrid(9, 7);
+        grid.BuildRoom(0, 0, 8, 6, TileType.HullWall);
+        for (int y = 1; y < 6; y++)
+            grid[3, y].Type = TileType.InteriorWall;
+
+        var helper = new CrewMember("Helper", new GridCoord(1, 2));
+        var nearbyButCutOffCrew = new CrewMember("Cut Off", new GridCoord(4, 2));
+        var reachableCrew = new CrewMember("Reachable", new GridCoord(2, 5));
+        var jobs = new JobManager();
+        var unreachableRequest = jobs.PostAssistanceRequest(
+            nearbyButCutOffCrew,
+            new Job(JobType.FetchItem, nearbyButCutOffCrew.Position),
+            new CrewDecisionDiagnostic(
+                CrewDiagnosticReason.BlockedByObstacle,
+                nearbyButCutOffCrew.Position,
+                new GridCoord(2, 2),
+                new GridCoord(3, 2),
+                "A bulkhead blocks the route."));
+        var reachableRequest = jobs.PostAssistanceRequest(
+            reachableCrew,
+            new Job(JobType.FetchItem, reachableCrew.Position),
+            new CrewDecisionDiagnostic(
+                CrewDiagnosticReason.BlockedByObstacle,
+                reachableCrew.Position,
+                new GridCoord(2, 4),
+                new GridCoord(3, 4),
+                "A bulkhead blocks the route."));
+
+        Assert.NotNull(unreachableRequest);
+        Assert.NotNull(reachableRequest);
+        Assert.True(Math.Abs(helper.Position.X - nearbyButCutOffCrew.Position.X) +
+                    Math.Abs(helper.Position.Y - nearbyButCutOffCrew.Position.Y) <
+                    Math.Abs(helper.Position.X - reachableCrew.Position.X) +
+                    Math.Abs(helper.Position.Y - reachableCrew.Position.Y));
+
+        var assignment = jobs.ClaimAssistanceRequest(helper, grid);
+
+        Assert.Same(reachableRequest, assignment);
+        Assert.Null(unreachableRequest!.AssignedCrewId);
+        Assert.Equal(helper.Id, reachableRequest!.AssignedCrewId);
+    }
+
+    [Fact]
     public void CrewPsychologyCannotMakeVacuumPathPossibleWithoutWorkingSuit()
     {
         var grid = new ShipGrid(8, 5);

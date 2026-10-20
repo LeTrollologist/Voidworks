@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Voidworks.Sim.Crew;
 using Voidworks.Sim.Items;
+using Voidworks.Sim.Navigation;
 using Voidworks.Sim.Ship;
 
 namespace Voidworks.Sim.Jobs;
@@ -113,15 +114,16 @@ public sealed class JobManager
             .FirstOrDefault();
     }
 
-    public Job? ClaimHighestPriorityJob(Crew.CrewMember crew, Guid? excludedJobId = null)
+    public Job? ClaimHighestPriorityJob(
+        Crew.CrewMember crew,
+        Guid? excludedJobId = null,
+        ShipGrid? grid = null)
     {
         var job = _jobs
             .Where(j => (!excludedJobId.HasValue || j.Id != excludedJobId.Value) &&
                         CanCrewClaimJob(j, crew))
             .OrderByDescending(j => j.Priority)
-            .ThenBy(j => j.Type == JobType.AssistCrew
-                ? Math.Abs(j.TargetCoord.X - crew.Position.X) + Math.Abs(j.TargetCoord.Y - crew.Position.Y)
-                : 0)
+            .ThenBy(j => EstimateTravelDistance(j, crew, grid))
             .FirstOrDefault();
 
         if (job != null)
@@ -134,12 +136,36 @@ public sealed class JobManager
         return job;
     }
 
-    public Job? ClaimAssistanceRequest(CrewMember helper)
+    private static int EstimateTravelDistance(Job job, Crew.CrewMember crew, ShipGrid? grid)
+    {
+        GridCoord target = job.Type switch
+        {
+            JobType.RepairBreach => job.TargetCoord,
+            JobType.FetchItem or JobType.EatFood or JobType.DrinkWater or JobType.RefineOre
+                when job.TargetItem != null && !job.TargetItem.IsCarried => job.TargetItem.Position,
+            _ => job.TargetCoord
+        };
+
+        if (grid == null)
+            return Math.Abs(target.X - crew.Position.X) + Math.Abs(target.Y - crew.Position.Y);
+
+        bool targetIsNotWalkable = job.Type == JobType.RepairBreach ||
+            job.Type == JobType.AssistCrew && job.AssistanceReason == CrewDiagnosticReason.BlockedByLockedDoor;
+        var route = targetIsNotWalkable
+            ? AStarPathfinder.FindPathToAdjacentWithDiagnostics(grid, crew.Position, target, crew)
+            : AStarPathfinder.FindPathWithDiagnostics(grid, crew.Position, target, crew);
+
+        // Keep unreachable work claimable when it is the only option, while
+        // preferring reachable work of equal priority whenever possible.
+        return route.Path?.Count ?? int.MaxValue;
+    }
+
+    public Job? ClaimAssistanceRequest(CrewMember helper, ShipGrid? grid = null)
     {
         var request = AssistanceJobs
             .Where(job => CanCrewClaimJob(job, helper))
             .OrderByDescending(job => job.Priority)
-            .ThenBy(job => Math.Abs(job.TargetCoord.X - helper.Position.X) + Math.Abs(job.TargetCoord.Y - helper.Position.Y))
+            .ThenBy(job => EstimateTravelDistance(job, helper, grid))
             .FirstOrDefault();
         if (request != null)
             request.AssignedCrewId = helper.Id;
