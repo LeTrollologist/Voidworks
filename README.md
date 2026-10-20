@@ -190,8 +190,8 @@ The roadmap is iterative and may change as systems are validated.
 - [x] Initial mining, ore processing, plumbing, and hydroponics systems
 - [x] Engineering overlays and system inspection
 - [x] Expand and validate electrical grid behavior, including load distribution and brownouts
-- [ ] Add more cross-system failure and recovery tests
-- [ ] Improve multi-crew coordination and work scheduling
+- [x] Add more cross-system failure and recovery tests
+- [x] Improve multi-crew coordination and work scheduling
 - [ ] Add robust save/load and reproducible simulation scenarios
 - [ ] Expand construction, manufacturing, mining, and ship progression
 - [ ] Evaluate multiplayer after the simulation model is mature

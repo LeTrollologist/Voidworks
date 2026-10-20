@@ -104,6 +104,16 @@ public sealed class CrewAI
             _moveAccumulator = 0.0;
         }
 
+        if (CurrentJob?.Type == JobType.RepairBreach && CurrentJob.AssignedCrewId != Crew.Id &&
+            (!CurrentJob.AssignedCrewId.HasValue || CurrentJob.IsCompleted || CurrentJob.IsCancelled ||
+             !jobManager.ActiveJobs.Contains(CurrentJob)))
+        {
+            CurrentJob = null;
+            _currentPath = null;
+            _moveAccumulator = 0.0;
+            CurrentActivity = "Repair support ended";
+        }
+
         if (_deferredJobTimer <= 0.0 && !_isRequestingAssistance)
             _deferredJobId = null;
 
@@ -112,7 +122,8 @@ public sealed class CrewAI
             CurrentActivity = "Deceased";
             if (CurrentJob != null)
             {
-                jobManager.ReleaseJob(CurrentJob);
+                if (CurrentJob.AssignedCrewId == Crew.Id)
+                    jobManager.ReleaseJob(CurrentJob);
                 CurrentJob = null;
             }
             jobManager.ReleaseJobsAssignedTo(Crew.Id);
@@ -124,7 +135,8 @@ public sealed class CrewAI
             CurrentActivity = "Incapacitated";
             if (CurrentJob != null)
             {
-                jobManager.ReleaseJob(CurrentJob);
+                if (CurrentJob.AssignedCrewId == Crew.Id)
+                    jobManager.ReleaseJob(CurrentJob);
                 CurrentJob = null;
             }
             jobManager.ReleaseJobsAssignedTo(Crew.Id);
@@ -266,10 +278,10 @@ public sealed class CrewAI
             return;
         }
 
-        EvaluateNextTask(grid, jobManager);
+        EvaluateNextTask(grid, jobManager, allCrew);
     }
 
-    private void EvaluateNextTask(ShipGrid grid, JobManager jobManager)
+    private void EvaluateNextTask(ShipGrid grid, JobManager jobManager, IReadOnlyList<CrewAI>? allCrew)
     {
         bool emergencyPlanFailed = false;
         // Assistance requests outrank routine assignments. Critical retreat and
@@ -278,6 +290,14 @@ public sealed class CrewAI
         if (assistanceJob != null)
         {
             CurrentJob = assistanceJob;
+            return;
+        }
+
+        var repairToSupport = jobManager.FindBreachRepairToSupport(Crew, grid, allCrew);
+        if (repairToSupport != null)
+        {
+            CurrentJob = repairToSupport;
+            CurrentActivity = $"Joining repair support: {repairToSupport.Name}";
             return;
         }
 
@@ -453,7 +473,7 @@ public sealed class CrewAI
                 break;
 
             case JobType.RepairBreach:
-                ExecuteRepairBreach(grid, jobManager, dt);
+                ExecuteRepairBreach(grid, jobManager, dt, allCrew);
                 break;
 
             case JobType.RefineOre:
@@ -615,9 +635,28 @@ public sealed class CrewAI
         CurrentJob = null;
     }
 
-    private void ExecuteRepairBreach(ShipGrid grid, JobManager jobManager, double dt)
+    private void ExecuteRepairBreach(
+        ShipGrid grid,
+        JobManager jobManager,
+        double dt,
+        IReadOnlyList<CrewAI>? allCrew)
     {
-        var breachCoord = CurrentJob!.TargetCoord;
+        var repairJob = CurrentJob!;
+        if (repairJob.IsCompleted || repairJob.IsCancelled || !jobManager.ActiveJobs.Contains(repairJob))
+        {
+            CurrentJob = null;
+            _currentPath = null;
+            _moveAccumulator = 0.0;
+            return;
+        }
+
+        if (repairJob.AssignedCrewId != Crew.Id)
+        {
+            ExecuteRepairSupport(grid, repairJob, dt, allCrew);
+            return;
+        }
+
+        var breachCoord = repairJob.TargetCoord;
         int dist = Math.Abs(Crew.Position.X - breachCoord.X) + Math.Abs(Crew.Position.Y - breachCoord.Y);
 
         if (dist <= 1)
@@ -637,9 +676,9 @@ public sealed class CrewAI
             }
 
             CurrentActivity = $"Welding breach at {breachCoord}...";
-            CurrentJob.WorkRemainingSeconds -= dt * Crew.Psychology.WorkRateMultiplier;
+            repairJob.WorkRemainingSeconds -= dt * Crew.Psychology.WorkRateMultiplier;
 
-            if (CurrentJob.WorkRemainingSeconds <= 0)
+            if (repairJob.WorkRemainingSeconds <= 0)
             {
                 var breachTile = grid[breachCoord];
                 breachTile.IsBreached = false;
@@ -651,7 +690,15 @@ public sealed class CrewAI
                 }
 
                 CurrentActivity = $"Repaired breach at {breachCoord}!";
-                jobManager.CompleteJob(CurrentJob);
+                if (allCrew != null)
+                {
+                    foreach (var supporter in allCrew.Where(ai => ai != this && ai.CurrentJob?.Id == repairJob.Id))
+                    {
+                        supporter.Crew.Psychology.RegisterHelpedAnotherCrewMember();
+                        Crew.Psychology.RegisterReceivedAssistance();
+                    }
+                }
+                jobManager.CompleteJob(repairJob);
                 CurrentJob = null;
             }
             return;
@@ -661,7 +708,7 @@ public sealed class CrewAI
         if (routeResult.Path == null || routeResult.Path.Count <= 1)
         {
             RecordNavigationFailure(routeResult, breachCoord, jobManager);
-            jobManager.ReleaseJobForRetry(CurrentJob, Crew.Id);
+            jobManager.ReleaseJobForRetry(repairJob, Crew.Id);
             CurrentJob = null;
             CurrentActivity = "Cannot reach breach";
             return;
@@ -673,6 +720,57 @@ public sealed class CrewAI
         _currentPath = path;
         CurrentActivity = $"Moving to breach at {breachCoord}";
     }
+
+    private void ExecuteRepairSupport(
+        ShipGrid grid,
+        Job repairJob,
+        double dt,
+        IReadOnlyList<CrewAI>? allCrew)
+    {
+        int distance = Math.Abs(Crew.Position.X - repairJob.TargetCoord.X) +
+            Math.Abs(Crew.Position.Y - repairJob.TargetCoord.Y);
+        if (distance > 1)
+        {
+            var route = AStarPathfinder.FindPathToAdjacentWithDiagnostics(
+                grid, Crew.Position, repairJob.TargetCoord, Crew);
+            if (route.Path == null || route.Path.Count <= 1)
+            {
+                LastDiagnostic = route.Diagnostic;
+                CurrentJob = null;
+                _currentPath = null;
+                _moveAccumulator = 0.0;
+                CurrentActivity = $"Unable to join breach repair: {route.Diagnostic.Reason}";
+                return;
+            }
+
+            ClearFailureAfterSuccess();
+            route.Path.RemoveAt(0);
+            _currentPath = route.Path;
+            CurrentActivity = $"Moving to assist breach repair at {repairJob.TargetCoord}";
+            return;
+        }
+
+        var lead = allCrew?.FirstOrDefault(ai => ai.Crew.Id == repairJob.AssignedCrewId);
+        if (lead == null || lead.CurrentJob?.Id != repairJob.Id ||
+            !IsAdjacent(lead.Crew.Position, repairJob.TargetCoord) ||
+            !HasBreachRepairEquipment(lead.Crew))
+        {
+            CurrentActivity = "Waiting for lead crew member to begin breach repair";
+            return;
+        }
+
+        repairJob.WorkRemainingSeconds = Math.Max(
+            0.0,
+            repairJob.WorkRemainingSeconds - dt * Crew.Psychology.WorkRateMultiplier * 0.5);
+        CurrentActivity = $"Assisting breach repair at {repairJob.TargetCoord}";
+    }
+
+    private static bool HasBreachRepairEquipment(CrewMember crew)
+        => crew.IsEquippedWithSuit && crew.HasUsableOxygenSupply &&
+           crew.HasItem(ItemType.WeldingTorch) && crew.HasItem(ItemType.SteelPlate);
+
+    private static bool IsAdjacent(GridCoord first, GridCoord second)
+        => Math.Abs(first.X - second.X) + Math.Abs(first.Y - second.Y) <= 1;
 
     private void ExecuteEatFood(JobManager jobManager, double dt)
     {
@@ -939,7 +1037,8 @@ public sealed class CrewAI
         if (CurrentJob != null)
         {
             Crew.Psychology.RegisterJobInterrupted();
-            jobManager.ReleaseJob(CurrentJob);
+            if (CurrentJob.AssignedCrewId == Crew.Id)
+                jobManager.ReleaseJob(CurrentJob);
             CurrentJob = null;
         }
 

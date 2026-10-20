@@ -366,6 +366,222 @@ public class SystemicFailuresAndScenariosTests
     }
 
     [Fact]
+    public void CrewRepairSupport_SpeedsBreachRepairAndReplaysAfterSaveLoad()
+    {
+        var team = CreateRepairSimulation(includeHelper: true);
+        var helperAI = team.HelperAI!;
+        int teamTicks = 0;
+        while (helperAI.CurrentJob?.Id != team.RepairJob.Id && teamTicks < 10)
+        {
+            team.Sim.Step(0.1);
+            teamTicks++;
+        }
+
+        Assert.Equal(team.RepairJob.Id, helperAI.CurrentJob?.Id);
+        Assert.Equal(team.LeadAI.Crew.Id, team.RepairJob.AssignedCrewId);
+        Assert.Same(team.RepairJob, team.LeadAI.CurrentJob);
+
+        while (helperAI.CurrentActivity != $"Assisting breach repair at {team.Breach}" && teamTicks < 30)
+        {
+            team.Sim.Step(0.1);
+            teamTicks++;
+        }
+
+        Assert.Equal($"Assisting breach repair at {team.Breach}", helperAI.CurrentActivity);
+        Assert.True(team.RepairJob.WorkRemainingSeconds < 3.0);
+
+        var restored = SimulationSerializer.LoadFromJson(SimulationSerializer.SaveToJson(team.Sim));
+        var restoredJob = Assert.Single(restored.JobManager.ActiveJobs, job => job.Type == JobType.RepairBreach);
+        var restoredLead = restored.Crew[0];
+        var restoredHelper = restored.Crew[1];
+        Assert.Equal(team.RepairJob.Id, restoredJob.Id);
+        Assert.Equal(team.LeadAI.Crew.Id, restoredJob.AssignedCrewId);
+        Assert.Equal(team.RepairJob.WorkRemainingSeconds, restoredJob.WorkRemainingSeconds, precision: 8);
+        Assert.Equal(restoredJob.Id, restoredLead.CurrentJob?.Id);
+        Assert.Equal(restoredJob.Id, restoredHelper.CurrentJob?.Id);
+
+        for (int i = 0; i < 100 && team.Sim.Grid[team.Breach].IsBreached; i++)
+        {
+            team.Sim.Step(0.1);
+            restored.Step(0.1);
+            teamTicks++;
+        }
+
+        Assert.False(team.Sim.Grid[team.Breach].IsBreached);
+        Assert.False(restored.Grid[team.Breach].IsBreached);
+        Assert.Equal(team.RepairJob.WorkRemainingSeconds, restoredJob.WorkRemainingSeconds, precision: 8);
+        Assert.Equal(team.LeadAI.Crew.Position, restoredLead.Crew.Position);
+        Assert.Equal(helperAI.Crew.Position, restoredHelper.Crew.Position);
+        Assert.Null(helperAI.CurrentJob);
+        Assert.Null(restoredHelper.CurrentJob);
+        Assert.Equal(team.LeadAI.Crew.Id, team.RepairJob.AssignedCrewId);
+        Assert.DoesNotContain(team.Plate, team.LeadAI.Crew.Inventory);
+        Assert.DoesNotContain(helperAI.Crew.Inventory, item => item.Type is ItemType.SteelPlate or ItemType.WeldingTorch);
+
+        var solo = CreateRepairSimulation(includeHelper: false);
+        int soloTicks = 0;
+        while (solo.Sim.Grid[solo.Breach].IsBreached && soloTicks < 100)
+        {
+            solo.Sim.Step(0.1);
+            soloTicks++;
+        }
+
+        Assert.False(solo.Sim.Grid[solo.Breach].IsBreached);
+        Assert.True(teamTicks < soloTicks, $"Team took {teamTicks} ticks; solo took {soloTicks}.");
+        Assert.DoesNotContain(solo.Plate, solo.LeadAI.Crew.Inventory);
+
+        static (SimulationState Sim, CrewAI LeadAI, CrewAI? HelperAI, Job RepairJob, GridCoord Breach, Item Plate)
+            CreateRepairSimulation(bool includeHelper)
+        {
+            var grid = new ShipGrid(10, 8);
+            grid.BuildRoom(1, 1, 8, 6, TileType.HullWall);
+            GridCoord breach = new(8, 3);
+            grid.BreachTile(breach.X, breach.Y);
+
+            var lead = new CrewMember("Repair Lead", new GridCoord(7, 3), "Engineer");
+            var suit = new Item(ItemType.EvaSuit, lead.Position);
+            var tank = new Item(ItemType.OxygenTank, lead.Position) { StoredOxygenMoles = 20.0 };
+            lead.PickUp(suit);
+            lead.PickUp(tank);
+            Assert.True(lead.EquipSuit(suit, tank));
+            lead.PickUp(new Item(ItemType.WeldingTorch, lead.Position));
+            var plate = new Item(ItemType.SteelPlate, lead.Position);
+            lead.PickUp(plate);
+
+            var jobs = new JobManager();
+            jobs.ScanWorldForEmergencies(grid);
+            var sim = new SimulationState(grid, new AtmosphereSolver(), jobs);
+            var leadAI = new CrewAI(lead);
+            sim.Crew.Add(leadAI);
+
+            CrewAI? helperAI = null;
+            if (includeHelper)
+            {
+                helperAI = new CrewAI(new CrewMember("Repair Helper", new GridCoord(6, 2), "Generalist"));
+                sim.Crew.Add(helperAI);
+            }
+
+            return (sim, leadAI, helperAI, Assert.Single(jobs.ActiveJobs, job => job.Type == JobType.RepairBreach), breach, plate);
+        }
+    }
+
+    [Fact]
+    public void CoolantAndCableFailure_ScramsReactorAndStopsLifeSupport_RecoveryReplaysAfterSaveLoad()
+    {
+        var grid = new ShipGrid(12, 8);
+        grid.BuildRoom(1, 1, 9, 6, TileType.HullWall);
+        foreach (var tile in grid.AllTiles().Where(tile => tile.Type == TileType.Floor))
+        {
+            tile.Atmosphere.Oxygen = 0.0;
+            tile.Atmosphere.Nitrogen = 100.0;
+            tile.Atmosphere.CarbonDioxide = 0.0;
+            tile.Atmosphere.ToxicGas = 0.0;
+        }
+        grid[10, 2].Type = TileType.Space;
+
+        var reactor = new Machine(MachineType.Reactor, new GridCoord(2, 2))
+        {
+            CoreTemperatureKelvin = 1199.99,
+            HeatCapacityJoulesPerKelvin = 1000.0,
+            HeatGenerationKW = 20.0
+        };
+        var radiator = new Machine(MachineType.Radiator, new GridCoord(9, 2))
+        {
+            RadiatorCoolingKW = 30.0,
+            CoolantPumpFlowRateLitersPerSecond = 0.5
+        };
+        var oxygenGenerator = new Machine(MachineType.OxygenGenerator, new GridCoord(4, 4))
+        {
+            O2GenerationRatePerSecond = 0.05
+        };
+        var backupBattery = new Machine(MachineType.Battery, new GridCoord(8, 2))
+        {
+            IsOnline = false,
+            BatteryCapacityKWh = 10.0,
+            BatteryStoredKWh = 10.0
+        };
+        var crew = new CrewMember("Chen", new GridCoord(4, 5));
+        var sim = new SimulationState(grid, new AtmosphereSolver(), new JobManager());
+        sim.Machines.Add(reactor);
+        sim.Machines.Add(radiator);
+        sim.Machines.Add(oxygenGenerator);
+        sim.Machines.Add(backupBattery);
+        sim.Crew.Add(new CrewAI(crew));
+        for (int x = 2; x <= 9; x++)
+        {
+            sim.Cables.Add(new GridCoord(x, 3));
+            sim.PlumbingSolver.CoolantPipes.Add(new GridCoord(x, 2));
+        }
+
+        sim.Step(0.1);
+        Assert.True(radiator.IsPowered);
+        Assert.True(oxygenGenerator.IsPowered);
+        Assert.True(sim.PlumbingSolver.TotalCoolantFlowRateLitersPerSecond > 0.0);
+        Assert.False(reactor.IsScrammed);
+
+        GridCoord cutCoolantPipe = new(5, 2);
+        GridCoord cutPowerCable = new(3, 3);
+        sim.PlumbingSolver.CoolantPipes.Remove(cutCoolantPipe);
+        sim.Cables.Remove(cutPowerCable);
+        for (int i = 0; i < 60 && (!reactor.IsScrammed || oxygenGenerator.IsPowered); i++)
+            sim.Step(0.1);
+
+        Assert.True(reactor.IsScrammed);
+        Assert.False(radiator.IsPowered);
+        Assert.False(oxygenGenerator.IsPowered);
+        Assert.True(sim.PlumbingSolver.TotalCoolantLeakRateLitersPerSecond > 0.0);
+
+        for (int i = 0; i < 150; i++)
+            sim.Step(0.1);
+
+        Assert.True(crew.Physiology.OxygenSaturation < 50.0);
+        Assert.True(crew.Physiology.Health < 100.0);
+        Assert.True(crew.Physiology.IsAlive);
+
+        var restored = SimulationSerializer.LoadFromJson(SimulationSerializer.SaveToJson(sim));
+        var restoredReactor = Assert.Single(restored.Machines, machine => machine.Type == MachineType.Reactor);
+        var restoredRadiator = Assert.Single(restored.Machines, machine => machine.Type == MachineType.Radiator);
+        var restoredGenerator = Assert.Single(restored.Machines, machine => machine.Type == MachineType.OxygenGenerator);
+        var restoredBattery = Assert.Single(restored.Machines, machine => machine.Type == MachineType.Battery);
+        var restoredCrew = restored.Crew[0].Crew;
+
+        sim.PlumbingSolver.CoolantPipes.Add(cutCoolantPipe);
+        restored.PlumbingSolver.CoolantPipes.Add(cutCoolantPipe);
+        sim.Cables.Add(cutPowerCable);
+        restored.Cables.Add(cutPowerCable);
+        backupBattery.IsOnline = true;
+        restoredBattery.IsOnline = true;
+
+        for (int i = 0; i < 1000 && !reactor.CanResetScram; i++)
+        {
+            sim.Step(0.1);
+            restored.Step(0.1);
+        }
+
+        Assert.True(reactor.CanResetScram);
+        Assert.True(restoredReactor.CanResetScram);
+        Assert.True(sim.PlumbingSolver.TotalCoolantFlowRateLitersPerSecond > 0.0);
+        Assert.True(oxygenGenerator.IsPowered);
+        Assert.True(restoredGenerator.IsPowered);
+        Assert.True(reactor.TryResetScram());
+        Assert.True(restoredReactor.TryResetScram());
+
+        for (int i = 0; i < 100; i++)
+        {
+            sim.Step(0.1);
+            restored.Step(0.1);
+        }
+
+        Assert.True(crew.Physiology.OxygenSaturation > 90.0);
+        Assert.Equal(crew.Physiology.OxygenSaturation, restoredCrew.Physiology.OxygenSaturation, precision: 8);
+        Assert.Equal(crew.Physiology.Health, restoredCrew.Physiology.Health, precision: 8);
+        Assert.Equal(reactor.CoreTemperatureKelvin, restoredReactor.CoreTemperatureKelvin, precision: 8);
+        Assert.Equal(backupBattery.BatteryStoredKWh, restoredBattery.BatteryStoredKWh, precision: 8);
+        Assert.Equal(grid[4, 5].Atmosphere.Oxygen, restored.Grid[4, 5].Atmosphere.Oxygen, precision: 8);
+        Assert.Equal(0.0, sim.PlumbingSolver.TotalCoolantLeakRateLitersPerSecond);
+    }
+
+    [Fact]
     public void Test3_CrewEmergency_BreachPreemptsIndustrialWork_RepairsBreach_ResumesProductiveWork()
     {
         var grid = new ShipGrid(10, 8);

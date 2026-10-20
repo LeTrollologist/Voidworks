@@ -172,6 +172,51 @@ public sealed class JobManager
         return request;
     }
 
+    public Job? FindBreachRepairToSupport(
+        CrewMember helper,
+        ShipGrid grid,
+        IReadOnlyList<CrewAI>? crewAgents)
+    {
+        if (crewAgents == null || helper.Psychology.AssistanceWillingness < 25.0)
+            return null;
+
+        var candidate = _jobs
+            .Where(job => job.Type == JobType.RepairBreach && job.Priority >= 100 &&
+                          !job.IsCompleted && !job.IsCancelled && job.AssignedCrewId.HasValue &&
+                          job.AssignedCrewId != helper.Id)
+            .Select(job =>
+            {
+                var lead = crewAgents.FirstOrDefault(ai => ai.Crew.Id == job.AssignedCrewId.GetValueOrDefault());
+                var route = AStarPathfinder.FindPathToAdjacentWithDiagnostics(
+                    grid, helper.Position, job.TargetCoord, helper);
+                return (Job: job, Lead: lead, Route: route);
+            })
+            .Where(candidate => candidate.Lead is { } lead &&
+                                lead.CurrentJob?.Id == candidate.Job.Id &&
+                                IsAdjacent(lead.Crew.Position, candidate.Job.TargetCoord) &&
+                                HasBreachRepairEquipment(lead.Crew) &&
+                                candidate.Route.Path != null &&
+                                !crewAgents.Any(ai => ai.Crew.Id != candidate.Job.AssignedCrewId &&
+                                                      ai.CurrentJob?.Id == candidate.Job.Id))
+            .OrderByDescending(candidate => candidate.Job.Priority)
+            .ThenBy(candidate => candidate.Route.Path!.Count)
+            .Select(candidate => candidate.Job)
+            .FirstOrDefault();
+
+        if (candidate == null || _jobs.Any(job => job != candidate &&
+                job.Priority >= candidate.Priority && CanCrewClaimJob(job, helper)))
+            return null;
+
+        return candidate;
+    }
+
+    private static bool HasBreachRepairEquipment(CrewMember crew)
+        => crew.IsEquippedWithSuit && crew.HasUsableOxygenSupply &&
+           crew.HasItem(ItemType.WeldingTorch) && crew.HasItem(ItemType.SteelPlate);
+
+    private static bool IsAdjacent(GridCoord first, GridCoord second)
+        => Math.Abs(first.X - second.X) + Math.Abs(first.Y - second.Y) <= 1;
+
     public bool CanCrewClaimJob(Job job, CrewMember crew)
         => !job.IsCompleted && !job.IsCancelled &&
            (job.AssignedCrewId == null || job.AssignedCrewId == crew.Id) &&
