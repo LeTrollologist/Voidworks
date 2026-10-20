@@ -47,6 +47,7 @@ The goal is a simulation where machinery, resources, atmosphere, and people depe
 - Persistent personality traits (courage, discipline, self-preservation, determination, and sociability) and changing psychological values (motivation, fear, stress, anger, and morale). They influence movement and work rates, personal-need priorities, hazard tolerance, and willingness to assist. Fatigue remains a separate physiological need, and psychological factors do not bypass physical or equipment constraints.
 - Crew assistance requests after repeated failures involving missing resources, blocked routes, or hazards beyond the requester’s tolerance. Eligible helpers can deliver required equipment, open a locked door, or take over the source task and retry it with their own route and equipment.
 - Assistance requests and crew psychology included in simulation save data, with current assistance status visible in the crew inspector.
+- Simulation saves use versioned JSON and validate world structure before loading. They preserve crew retry, retreat, diagnostic, and scenario progress state; file saves are written and flushed to a temporary file before replacing the existing save.
 
 ### Engineering viewport
 
@@ -125,6 +126,8 @@ Run the crew hazard response scenario without opening a window:
 ```powershell
 dotnet run --project src/Voidworks.Game/Voidworks.Game.csproj -- --headless --scenario crew-hazard-response
 ```
+
+Headless scenarios advance with a fixed 0.1-second simulation step. Re-run the same scenario id from the standard ship setup to reproduce its starting conditions.
 
 Run the automated tests:
 

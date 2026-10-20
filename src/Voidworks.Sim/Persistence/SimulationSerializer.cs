@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Voidworks.Sim.Atmosphere;
@@ -17,6 +18,9 @@ namespace Voidworks.Sim.Persistence;
 
 public static class SimulationSerializer
 {
+    private const int CurrentSaveFormatVersion = 1;
+    private const long MaximumSavedGridTileCount = 1_000_000;
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
@@ -25,10 +29,47 @@ public static class SimulationSerializer
 
     public static void SaveToFile(SimulationState sim, string path)
     {
+        ArgumentNullException.ThrowIfNull(sim);
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         string fullPath = Path.GetFullPath(path);
-        Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
-        File.WriteAllText(fullPath, SaveToJson(sim));
+        string directory = Path.GetDirectoryName(fullPath)!;
+        Directory.CreateDirectory(directory);
+
+        string temporaryPath = Path.Combine(directory, $".{Path.GetFileName(fullPath)}.{Guid.NewGuid():N}.tmp");
+        try
+        {
+            byte[] saveBytes = Encoding.UTF8.GetBytes(SaveToJson(sim));
+            using (var stream = new FileStream(
+                temporaryPath,
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.None,
+                bufferSize: 4096,
+                FileOptions.WriteThrough))
+            {
+                stream.Write(saveBytes);
+                stream.Flush(flushToDisk: true);
+            }
+
+            // The temporary file is on the same volume, so the destination is only
+            // replaced after the complete save has been written and flushed.
+            File.Move(temporaryPath, fullPath, overwrite: true);
+        }
+        finally
+        {
+            try
+            {
+                File.Delete(temporaryPath);
+            }
+            catch (IOException)
+            {
+                // Preserve the original write/replace error if best-effort cleanup fails.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Preserve the original write/replace error if best-effort cleanup fails.
+            }
+        }
     }
 
     public static SimulationState LoadFromFile(string path)
@@ -39,8 +80,10 @@ public static class SimulationSerializer
 
     public static string SaveToJson(SimulationState sim)
     {
+        ArgumentNullException.ThrowIfNull(sim);
         var dto = new SimulationSaveDto
         {
+            SaveFormatVersion = CurrentSaveFormatVersion,
             SimTime = sim.SimTime,
             UpdateAccumulator = sim.UpdateAccumulator,
             CableCapacityKW = sim.PowerGridSolver.CableCapacityKW,
@@ -137,6 +180,12 @@ public static class SimulationSerializer
                 DeferredJobId = c.DeferredJobId,
                 DeferredJobTimer = c.DeferredJobTimer,
                 IsRequestingAssistance = c.IsRequestingAssistance,
+                ConsecutiveTaskFailures = c.ConsecutiveTaskFailures,
+                IsRetreating = c.IsRetreating,
+                RetreatTargetX = c.RetreatTarget?.X,
+                RetreatTargetY = c.RetreatTarget?.Y,
+                RetreatRetryTimer = c.RetreatRetryTimer,
+                LastDiagnostic = c.LastDiagnostic != null ? ToDiagnosticDto(c.LastDiagnostic) : null,
                 BunkX = c.Crew.AssignedBunkCoord?.X,
                 BunkY = c.Crew.AssignedBunkCoord?.Y,
                 Health = c.Crew.Physiology.Health,
@@ -172,13 +221,25 @@ public static class SimulationSerializer
             }).ToList() ?? new List<ScenarioObjectiveSaveDto>()
         };
 
+        ValidateSaveData(dto);
         return JsonSerializer.Serialize(dto, JsonOptions);
     }
 
     public static SimulationState LoadFromJson(string json)
     {
-        var dto = JsonSerializer.Deserialize<SimulationSaveDto>(json, JsonOptions)
-                  ?? throw new InvalidOperationException("Failed to deserialize simulation save data.");
+        ArgumentException.ThrowIfNullOrWhiteSpace(json);
+        SimulationSaveDto dto;
+        try
+        {
+            dto = JsonSerializer.Deserialize<SimulationSaveDto>(json, JsonOptions)
+                  ?? throw new InvalidDataException("Simulation save data is empty.");
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidDataException("Simulation save data is not valid JSON.", exception);
+        }
+
+        ValidateSaveData(dto);
 
         var grid = new ShipGrid(dto.GridWidth, dto.GridHeight);
         foreach (var tDto in dto.Tiles)
@@ -350,7 +411,14 @@ public static class SimulationSerializer
                 crewDto.CurrentActivity,
                 crewDto.DeferredJobId,
                 crewDto.DeferredJobTimer,
-                crewDto.IsRequestingAssistance);
+                crewDto.IsRequestingAssistance,
+                crewDto.ConsecutiveTaskFailures,
+                crewDto.IsRetreating,
+                crewDto.RetreatTargetX.HasValue
+                    ? new GridCoord(crewDto.RetreatTargetX.Value, crewDto.RetreatTargetY!.Value)
+                    : null,
+                crewDto.RetreatRetryTimer,
+                crewDto.LastDiagnostic != null ? FromDiagnosticDto(crewDto.LastDiagnostic) : null);
         }
 
         // Restore Scenario
@@ -358,27 +426,328 @@ public static class SimulationSerializer
         {
             Scenario? scenario = ScenarioCatalog.CreateById(dto.ScenarioId);
 
-            if (scenario != null)
+            if (scenario == null)
+                throw new InvalidDataException($"Save data references unknown scenario '{dto.ScenarioId}'.");
+
+            scenario.ElapsedSeconds = dto.ScenarioElapsed ?? 0.0;
+            scenario.TimeLimitSeconds = dto.ScenarioTimeLimit ?? scenario.TimeLimitSeconds;
+            scenario.IsCompleted = dto.ScenarioCompleted;
+            scenario.IsFailed = dto.ScenarioFailed;
+            scenario.FailureReason = dto.ScenarioFailureReason;
+            foreach (var objectiveDto in dto.ScenarioObjectives)
             {
-                scenario.ElapsedSeconds = dto.ScenarioElapsed ?? 0.0;
-                scenario.TimeLimitSeconds = dto.ScenarioTimeLimit ?? scenario.TimeLimitSeconds;
-                scenario.IsCompleted = dto.ScenarioCompleted;
-                scenario.IsFailed = dto.ScenarioFailed;
-                scenario.FailureReason = dto.ScenarioFailureReason;
-                foreach (var objectiveDto in dto.ScenarioObjectives)
-                {
-                    var objective = scenario.Objectives.FirstOrDefault(o => o.Id == objectiveDto.Id);
-                    if (objective != null)
-                    {
-                        objective.IsCompleted = objectiveDto.IsCompleted;
-                        objective.IsFailed = objectiveDto.IsFailed;
-                    }
-                }
-                sim.ActiveScenario = scenario;
+                var objective = scenario.Objectives.FirstOrDefault(o => o.Id == objectiveDto.Id)
+                    ?? throw new InvalidDataException(
+                        $"Save data references unknown objective '{objectiveDto.Id}' for scenario '{dto.ScenarioId}'.");
+                objective.IsCompleted = objectiveDto.IsCompleted;
+                objective.IsFailed = objectiveDto.IsFailed;
             }
+
+            sim.ActiveScenario = scenario;
         }
 
         return sim;
+    }
+
+    private static void ValidateSaveData(SimulationSaveDto dto)
+    {
+        if (dto.SaveFormatVersion < 0 || dto.SaveFormatVersion > CurrentSaveFormatVersion)
+            throw new NotSupportedException(
+                $"Save format version {dto.SaveFormatVersion} is not supported. This build supports versions 0 through {CurrentSaveFormatVersion}.");
+
+        if (dto.GridWidth <= 0 || dto.GridHeight <= 0)
+            throw new InvalidDataException("Save data must contain positive grid dimensions.");
+
+        long tileCount = (long)dto.GridWidth * dto.GridHeight;
+        if (tileCount > MaximumSavedGridTileCount)
+            throw new InvalidDataException(
+                $"Saved grid contains {tileCount} tiles; the maximum supported by this build is {MaximumSavedGridTileCount}.");
+
+        if (dto.Tiles == null || dto.Machines == null || dto.Cables == null ||
+            dto.CoolantPipes == null || dto.PropellantPipes == null || dto.WorldItems == null ||
+            dto.Jobs == null || dto.Crew == null || dto.ScenarioObjectives == null)
+            throw new InvalidDataException("Save data contains a missing or null collection.");
+
+        RequireFiniteNonNegative(dto.SimTime, "simulation time");
+        RequireFiniteNonNegative(dto.UpdateAccumulator, "update accumulator");
+        if (!double.IsFinite(dto.TimeScale) || dto.TimeScale <= 0.0)
+            throw new InvalidDataException("Save data contains an invalid time scale.");
+        double[] plumbingValues =
+        [
+            dto.CableCapacityKW,
+            dto.CoolantCapacityLiters,
+            dto.CoolantStoredLiters,
+            dto.CoolantReserveLiters,
+            dto.CoolantLeakRateLitersPerSecond,
+            dto.PropellantPipeCapacityKgPerSecond
+        ];
+        if (plumbingValues.Any(value => !double.IsFinite(value) || value < 0.0))
+            throw new InvalidDataException("Save data contains invalid utility system values.");
+
+        if (dto.Tiles.Count != tileCount)
+            throw new InvalidDataException(
+                $"Save data contains {dto.Tiles.Count} tiles, but the {dto.GridWidth}x{dto.GridHeight} grid requires {tileCount}.");
+
+        var tileCoordinates = new HashSet<(int X, int Y)>();
+        foreach (var tile in dto.Tiles)
+        {
+            if (tile == null)
+                throw new InvalidDataException("Save data contains a null tile.");
+            ValidateCoordinate(tile.X, tile.Y, dto.GridWidth, dto.GridHeight, "tile");
+            if (!tileCoordinates.Add((tile.X, tile.Y)))
+                throw new InvalidDataException($"Save data contains duplicate tile ({tile.X}, {tile.Y}).");
+            if (!Enum.IsDefined(typeof(TileType), tile.Type) || !Enum.IsDefined(typeof(DoorState), tile.DoorState))
+                throw new InvalidDataException($"Tile ({tile.X}, {tile.Y}) contains an unknown tile or door type.");
+            RequireFiniteNonNegative(tile.O2, "tile oxygen");
+            RequireFiniteNonNegative(tile.N2, "tile nitrogen");
+            RequireFiniteNonNegative(tile.CO2, "tile carbon dioxide");
+            RequireFiniteNonNegative(tile.ToxicGas, "tile toxic gas");
+            if (tile.IronOre < 0 || tile.IceOre < 0)
+                throw new InvalidDataException($"Tile ({tile.X}, {tile.Y}) contains a negative resource quantity.");
+            if (!double.IsFinite(tile.TempK) || tile.TempK <= 0.0 ||
+                !double.IsFinite(tile.Volume) || tile.Volume <= 0.0)
+                throw new InvalidDataException($"Tile ({tile.X}, {tile.Y}) contains invalid atmosphere values.");
+        }
+
+        ValidateCoordinates(dto.Cables, dto.GridWidth, dto.GridHeight, "cable");
+        ValidateCoordinates(dto.CoolantPipes, dto.GridWidth, dto.GridHeight, "coolant pipe");
+        ValidateCoordinates(dto.PropellantPipes, dto.GridWidth, dto.GridHeight, "propellant pipe");
+
+        var machineIds = new HashSet<Guid>();
+        foreach (var machine in dto.Machines)
+        {
+            if (machine == null)
+                throw new InvalidDataException("Save data contains a null machine.");
+            ValidateCoordinate(machine.X, machine.Y, dto.GridWidth, dto.GridHeight, "machine");
+            ValidateId(machine.Id, machineIds, "machine");
+            if (machine.Name == null)
+                throw new InvalidDataException("Save data contains a machine with a null name.");
+            if (!Enum.IsDefined(typeof(MachineType), machine.Type))
+                throw new InvalidDataException($"Machine '{machine.Name}' contains an unknown type.");
+            double[] machineValues =
+            [
+                machine.PowerOutput, machine.RatedPowerOutput, machine.PowerDemand,
+                machine.BatteryMaxCharge, machine.BatteryMaxDischarge,
+                machine.O2GenerationRate, machine.CO2ScrubbingRate, machine.CoreTempK,
+                machine.HeatGeneration, machine.HeatCapacity, machine.MaxSafeTempK,
+                machine.ScramTempK, machine.ScramResetTempK, machine.RadiatorCooling,
+                machine.CoolantPumpFlowRate, machine.BatteryStored, machine.BatteryCapacity,
+                machine.MiningProgress, machine.MiningCycle, machine.SmeltProgress,
+                machine.SmeltCycle, machine.WaterStored, machine.GrowthProgress,
+                machine.GrowthCycle, machine.FuelStored, machine.FuelCapacity,
+                machine.Thrust, machine.FuelBurnRate
+            ];
+            if (machineValues.Any(value => !double.IsFinite(value) || value < 0.0) ||
+                machine.IronOreStored < 0 || machine.SteelPlatesProduced < 0 ||
+                machine.FoodProduced < 0 || machine.TotalOreExtracted < 0)
+                throw new InvalidDataException($"Machine '{machine.Name}' contains invalid operating values.");
+            if (machine.PowerFraction.HasValue &&
+                (!double.IsFinite(machine.PowerFraction.Value) || machine.PowerFraction.Value < 0.0 || machine.PowerFraction.Value > 1.0))
+                throw new InvalidDataException($"Machine '{machine.Name}' contains an invalid power fraction.");
+            if (machine.TargetAsteroidX.HasValue != machine.TargetAsteroidY.HasValue)
+                throw new InvalidDataException($"Machine '{machine.Name}' contains an incomplete asteroid coordinate.");
+            if (machine.TargetAsteroidX.HasValue)
+                ValidateCoordinate(machine.TargetAsteroidX.Value, machine.TargetAsteroidY!.Value,
+                    dto.GridWidth, dto.GridHeight, "asteroid target");
+        }
+
+        var crewIds = new HashSet<Guid>();
+        var itemIds = new HashSet<Guid>();
+        foreach (var item in dto.WorldItems)
+            ValidateItem(item, itemIds, dto.GridWidth, dto.GridHeight);
+
+        foreach (var crew in dto.Crew)
+        {
+            if (crew == null)
+                throw new InvalidDataException("Save data contains a null crew member.");
+            ValidateCoordinate(crew.X, crew.Y, dto.GridWidth, dto.GridHeight, "crew member");
+            ValidateId(crew.Id, crewIds, "crew member");
+            if (crew.Name == null || crew.Role == null || crew.CurrentActivity == null)
+                throw new InvalidDataException("Save data contains a crew member with missing identity or activity data.");
+            double[] crewRates = [crew.MoveSpeed, crew.MovementAccumulator, crew.DeferredJobTimer];
+            if (crewRates.Any(value => !double.IsFinite(value) || value < 0.0))
+                throw new InvalidDataException($"Crew member '{crew.Name}' contains invalid movement values.");
+            double[] crewStates =
+            [
+                crew.Health, crew.O2Sat, crew.Hunger, crew.Thirst, crew.Fatigue,
+                crew.Courage, crew.Discipline ?? crew.WorkEthic ?? 50.0,
+                crew.SelfPreservation, crew.Determination ?? 50.0,
+                crew.Sociability ?? 50.0, crew.Fear, crew.Stress ?? 0.0,
+                crew.Anger, crew.Motivation, crew.Morale ?? 70.0,
+                crew.Temper ?? 0.0
+            ];
+            if (crewStates.Any(value => !double.IsFinite(value) || value < 0.0 || value > 100.0))
+                throw new InvalidDataException($"Crew member '{crew.Name}' contains invalid physiology or psychology values.");
+            if (crew.BunkX.HasValue != crew.BunkY.HasValue)
+                throw new InvalidDataException($"Crew member '{crew.Name}' contains an incomplete bunk coordinate.");
+            if (crew.BunkX.HasValue)
+                ValidateCoordinate(crew.BunkX.Value, crew.BunkY!.Value, dto.GridWidth, dto.GridHeight, "bunk");
+            if (crew.RetreatTargetX.HasValue != crew.RetreatTargetY.HasValue)
+                throw new InvalidDataException($"Crew member '{crew.Name}' contains an incomplete retreat coordinate.");
+            if (crew.RetreatTargetX.HasValue)
+                ValidateCoordinate(crew.RetreatTargetX.Value, crew.RetreatTargetY!.Value,
+                    dto.GridWidth, dto.GridHeight, "retreat target");
+            if (crew.IsRetreating != crew.RetreatTargetX.HasValue)
+                throw new InvalidDataException($"Crew member '{crew.Name}' contains inconsistent retreat state.");
+            RequireFiniteNonNegative(crew.RetreatRetryTimer, "retreat retry timer");
+            if (crew.ConsecutiveTaskFailures < 0)
+                throw new InvalidDataException($"Crew member '{crew.Name}' contains a negative task failure count.");
+            if (crew.LastDiagnostic != null)
+                ValidateDiagnostic(crew.LastDiagnostic, dto.GridWidth, dto.GridHeight);
+            if (crew.Inventory == null || crew.CurrentPath == null || crew.PendingSubJobs == null)
+                throw new InvalidDataException($"Crew member '{crew.Name}' contains a missing or null collection.");
+            foreach (var item in crew.Inventory)
+                ValidateItem(item, itemIds, dto.GridWidth, dto.GridHeight);
+            if (crew.EquippedTank != null)
+                ValidateItem(crew.EquippedTank, itemIds, dto.GridWidth, dto.GridHeight);
+            foreach (var coord in crew.CurrentPath)
+            {
+                if (coord == null)
+                    throw new InvalidDataException($"Crew member '{crew.Name}' contains a null path coordinate.");
+                ValidateCoordinate(coord.X, coord.Y, dto.GridWidth, dto.GridHeight, "crew path");
+            }
+        }
+
+        var jobIds = new HashSet<Guid>();
+        foreach (var job in dto.Jobs)
+        {
+            ValidateJob(job, dto.GridWidth, dto.GridHeight);
+            ValidateId(job.Id, jobIds, "job");
+        }
+        foreach (var crew in dto.Crew)
+        {
+            if (crew.CurrentJob != null)
+                ValidateJob(crew.CurrentJob, dto.GridWidth, dto.GridHeight);
+            foreach (var job in crew.PendingSubJobs)
+                ValidateJob(job, dto.GridWidth, dto.GridHeight);
+        }
+
+        foreach (var job in dto.Jobs.Concat(dto.Crew
+                     .SelectMany(crew => (crew.CurrentJob == null
+                         ? Enumerable.Empty<JobSaveDto>()
+                         : new[] { crew.CurrentJob }).Concat(crew.PendingSubJobs))))
+        {
+            if (job.TargetItemId.HasValue && !itemIds.Contains(job.TargetItemId.Value))
+                throw new InvalidDataException($"Job '{job.Name}' references a missing item.");
+            if (job.AssignedCrewId.HasValue && !crewIds.Contains(job.AssignedCrewId.Value))
+                throw new InvalidDataException($"Job '{job.Name}' references a missing assigned crew member.");
+            if (job.TargetCrewId.HasValue && !crewIds.Contains(job.TargetCrewId.Value))
+                throw new InvalidDataException($"Job '{job.Name}' references a missing target crew member.");
+        }
+
+        if (dto.ScenarioCompleted && dto.ScenarioFailed)
+            throw new InvalidDataException("Save data cannot mark a scenario both completed and failed.");
+        if (dto.ScenarioElapsed.HasValue)
+            RequireFiniteNonNegative(dto.ScenarioElapsed.Value, "scenario elapsed time");
+        if (dto.ScenarioTimeLimit.HasValue &&
+            (!double.IsFinite(dto.ScenarioTimeLimit.Value) || dto.ScenarioTimeLimit.Value <= 0.0))
+            throw new InvalidDataException("Save data contains an invalid scenario time limit.");
+        if (string.IsNullOrWhiteSpace(dto.ScenarioId) &&
+            (dto.ScenarioCompleted || dto.ScenarioFailed || dto.ScenarioObjectives.Count > 0))
+            throw new InvalidDataException("Save data contains scenario progress without a scenario id.");
+        if (dto.ScenarioObjectives.Any(objective => objective == null || string.IsNullOrWhiteSpace(objective.Id)))
+            throw new InvalidDataException("Save data contains an invalid scenario objective.");
+        if (dto.ScenarioObjectives.Any(objective => objective.IsCompleted && objective.IsFailed))
+            throw new InvalidDataException("A scenario objective cannot be both completed and failed.");
+        if (dto.ScenarioObjectives.Select(objective => objective.Id).Distinct(StringComparer.Ordinal).Count() !=
+            dto.ScenarioObjectives.Count)
+            throw new InvalidDataException("Save data contains duplicate scenario objective ids.");
+        if (dto.ScenarioId != null && string.IsNullOrWhiteSpace(dto.ScenarioId))
+            throw new InvalidDataException("Save data contains an empty scenario id.");
+        if (dto.ScenarioId != null)
+        {
+            Scenario scenario = ScenarioCatalog.CreateById(dto.ScenarioId)
+                ?? throw new InvalidDataException($"Save data references unknown scenario '{dto.ScenarioId}'.");
+            if (dto.ScenarioObjectives.Any(savedObjective =>
+                    scenario.Objectives.All(objective => objective.Id != savedObjective.Id)))
+                throw new InvalidDataException($"Save data contains an objective not defined by scenario '{dto.ScenarioId}'.");
+        }
+    }
+
+    private static void ValidateCoordinates(
+        IEnumerable<CoordDto> coordinates, int width, int height, string description)
+    {
+        foreach (var coord in coordinates)
+        {
+            if (coord == null)
+                throw new InvalidDataException($"Save data contains a null {description} coordinate.");
+            ValidateCoordinate(coord.X, coord.Y, width, height, description);
+        }
+    }
+
+    private static void ValidateCoordinate(int x, int y, int width, int height, string description)
+    {
+        if (x < 0 || x >= width || y < 0 || y >= height)
+            throw new InvalidDataException($"Save data contains an out-of-bounds {description} coordinate ({x}, {y}).");
+    }
+
+    private static void ValidateId(Guid id, HashSet<Guid> seenIds, string description)
+    {
+        if (id == Guid.Empty)
+            throw new InvalidDataException($"Save data contains a {description} with an empty id.");
+        if (!seenIds.Add(id))
+            throw new InvalidDataException($"Save data contains duplicate {description} id '{id}'.");
+    }
+
+    private static void ValidateItem(ItemSaveDto item, HashSet<Guid> seenIds, int width, int height)
+    {
+        if (item == null)
+            throw new InvalidDataException("Save data contains a null item.");
+        if (item.Name == null)
+            throw new InvalidDataException("Save data contains an item with a null name.");
+        ValidateCoordinate(item.X, item.Y, width, height, "item");
+        ValidateId(item.Id, seenIds, "item");
+        if (!Enum.IsDefined(typeof(ItemType), item.Type))
+            throw new InvalidDataException($"Item '{item.Name}' contains an unknown type.");
+        RequireFiniteNonNegative(item.WeightKg, "item weight");
+        RequireFiniteNonNegative(item.O2Moles, "item oxygen");
+        RequireFiniteNonNegative(item.Nutrition, "item nutrition");
+        RequireFiniteNonNegative(item.Hydration, "item hydration");
+    }
+
+    private static void ValidateJob(JobSaveDto job, int width, int height)
+    {
+        if (job == null)
+            throw new InvalidDataException("Save data contains a null job.");
+        ValidateCoordinate(job.TargetX, job.TargetY, width, height, "job target");
+        if (job.Id == Guid.Empty)
+            throw new InvalidDataException("Save data contains a job with an empty id.");
+        if (!Enum.IsDefined(typeof(JobType), job.Type))
+            throw new InvalidDataException($"Job '{job.Name}' contains an unknown type.");
+        if (job.Name == null ||
+            (job.DesiredItemType.HasValue && !Enum.IsDefined(typeof(ItemType), job.DesiredItemType.Value)) ||
+            (job.AssistanceReason.HasValue && !Enum.IsDefined(typeof(CrewDiagnosticReason), job.AssistanceReason.Value)))
+            throw new InvalidDataException("Save data contains invalid job metadata.");
+        RequireFiniteNonNegative(job.WorkRemaining, "job work remaining");
+        if (job.AssistanceItemTypes == null || job.FailedAssistantCrewIds == null)
+            throw new InvalidDataException($"Job '{job.Name}' contains a missing or null collection.");
+        if (job.AssistanceItemTypes.Any(type => !Enum.IsDefined(typeof(ItemType), type)))
+            throw new InvalidDataException($"Job '{job.Name}' contains an unknown assistance item type.");
+    }
+
+    private static void ValidateDiagnostic(
+        CrewDiagnosticSaveDto diagnostic, int width, int height)
+    {
+        if (!Enum.IsDefined(typeof(CrewDiagnosticReason), diagnostic.Reason) ||
+            (diagnostic.UnderlyingReason.HasValue &&
+             !Enum.IsDefined(typeof(CrewDiagnosticReason), diagnostic.UnderlyingReason.Value)))
+            throw new InvalidDataException("Save data contains an unknown crew diagnostic reason.");
+        if (diagnostic.Detail == null || diagnostic.FailureCount < 0)
+            throw new InvalidDataException("Save data contains invalid crew diagnostic details.");
+        ValidateCoordinate(diagnostic.TargetX, diagnostic.TargetY, width, height, "diagnostic target");
+        ValidateCoordinate(diagnostic.LastReachableX, diagnostic.LastReachableY, width, height,
+            "last reachable tile");
+        if (diagnostic.BlockingX.HasValue != diagnostic.BlockingY.HasValue)
+            throw new InvalidDataException("Save data contains an incomplete diagnostic blocking coordinate.");
+        if (diagnostic.BlockingX.HasValue)
+            ValidateCoordinate(diagnostic.BlockingX.Value, diagnostic.BlockingY!.Value,
+                width, height, "diagnostic blocking tile");
+    }
+
+    private static void RequireFiniteNonNegative(double value, string description)
+    {
+        if (!double.IsFinite(value) || value < 0.0)
+            throw new InvalidDataException($"Save data contains an invalid {description} value.");
     }
 
     private static ItemSaveDto ToItemDto(Item item) => new()
@@ -395,6 +764,31 @@ public static class SimulationSerializer
         IsCarried = item.IsCarried,
         ReservedByCrewId = item.ReservedByCrewId
     };
+
+    private static CrewDiagnosticSaveDto ToDiagnosticDto(CrewDecisionDiagnostic diagnostic) => new()
+    {
+        Reason = diagnostic.Reason,
+        TargetX = diagnostic.Target.X,
+        TargetY = diagnostic.Target.Y,
+        LastReachableX = diagnostic.LastReachable.X,
+        LastReachableY = diagnostic.LastReachable.Y,
+        BlockingX = diagnostic.BlockingTile?.X,
+        BlockingY = diagnostic.BlockingTile?.Y,
+        Detail = diagnostic.Detail,
+        FailureCount = diagnostic.FailureCount,
+        UnderlyingReason = diagnostic.UnderlyingReason,
+        PhysicalRouteExists = diagnostic.PhysicalRouteExists
+    };
+
+    private static CrewDecisionDiagnostic FromDiagnosticDto(CrewDiagnosticSaveDto dto) => new(
+        dto.Reason,
+        new GridCoord(dto.TargetX, dto.TargetY),
+        new GridCoord(dto.LastReachableX, dto.LastReachableY),
+        dto.BlockingX.HasValue ? new GridCoord(dto.BlockingX.Value, dto.BlockingY!.Value) : null,
+        dto.Detail,
+        dto.FailureCount,
+        dto.UnderlyingReason,
+        dto.PhysicalRouteExists);
 
     private static Item FromItemDto(ItemSaveDto dto)
     {
@@ -465,6 +859,8 @@ public static class SimulationSerializer
 
 public sealed class SimulationSaveDto
 {
+    // Version 0 identifies saves written before an explicit format version existed.
+    public int SaveFormatVersion { get; set; }
     public double SimTime { get; set; }
     public double UpdateAccumulator { get; set; }
     public double CableCapacityKW { get; set; } = 50.0;
@@ -474,7 +870,7 @@ public sealed class SimulationSaveDto
     public double CoolantLeakRateLitersPerSecond { get; set; } = 0.25;
     public double PropellantPipeCapacityKgPerSecond { get; set; } = 5.0;
     public bool IsPaused { get; set; }
-    public double TimeScale { get; set; }
+    public double TimeScale { get; set; } = 1.0;
     public int GridWidth { get; set; }
     public int GridHeight { get; set; }
     public List<TileSaveDto> Tiles { get; set; } = new();
@@ -597,6 +993,12 @@ public sealed class CrewSaveDto
     public Guid? DeferredJobId { get; set; }
     public double DeferredJobTimer { get; set; }
     public bool IsRequestingAssistance { get; set; }
+    public int ConsecutiveTaskFailures { get; set; }
+    public bool IsRetreating { get; set; }
+    public int? RetreatTargetX { get; set; }
+    public int? RetreatTargetY { get; set; }
+    public double RetreatRetryTimer { get; set; }
+    public CrewDiagnosticSaveDto? LastDiagnostic { get; set; }
     public int? BunkX { get; set; }
     public int? BunkY { get; set; }
     public double Health { get; set; }
@@ -648,4 +1050,19 @@ public sealed class ScenarioObjectiveSaveDto
     public string Id { get; set; } = "";
     public bool IsCompleted { get; set; }
     public bool IsFailed { get; set; }
+}
+
+public sealed class CrewDiagnosticSaveDto
+{
+    public CrewDiagnosticReason Reason { get; set; }
+    public int TargetX { get; set; }
+    public int TargetY { get; set; }
+    public int LastReachableX { get; set; }
+    public int LastReachableY { get; set; }
+    public int? BlockingX { get; set; }
+    public int? BlockingY { get; set; }
+    public string Detail { get; set; } = "";
+    public int FailureCount { get; set; }
+    public CrewDiagnosticReason? UnderlyingReason { get; set; }
+    public bool PhysicalRouteExists { get; set; }
 }

@@ -31,6 +31,10 @@ public sealed class CrewAI
     public bool IsRequestingAssistance => _isRequestingAssistance;
     internal Guid? DeferredJobId => _deferredJobId;
     internal double DeferredJobTimer => _deferredJobTimer;
+    internal int ConsecutiveTaskFailures => _consecutiveTaskFailures;
+    internal bool IsRetreating => _isRetreating;
+    internal GridCoord? RetreatTarget => _retreatTarget;
+    internal double RetreatRetryTimer => _retreatRetryTimer;
 
     public CrewAI(CrewMember crew)
     {
@@ -45,7 +49,12 @@ public sealed class CrewAI
         string currentActivity,
         Guid? deferredJobId = null,
         double deferredJobTimer = 0.0,
-        bool isRequestingAssistance = false)
+        bool isRequestingAssistance = false,
+        int consecutiveTaskFailures = 0,
+        bool isRetreating = false,
+        GridCoord? retreatTarget = null,
+        double retreatRetryTimer = 0.0,
+        CrewDecisionDiagnostic? lastDiagnostic = null)
     {
         CurrentJob = currentJob;
         _subJobs.Clear();
@@ -58,6 +67,11 @@ public sealed class CrewAI
         _deferredJobId = deferredJobId;
         _deferredJobTimer = Math.Max(0.0, deferredJobTimer);
         _isRequestingAssistance = isRequestingAssistance;
+        _consecutiveTaskFailures = Math.Max(0, consecutiveTaskFailures);
+        _isRetreating = isRetreating;
+        _retreatTarget = retreatTarget;
+        _retreatRetryTimer = Math.Max(0.0, retreatRetryTimer);
+        LastDiagnostic = lastDiagnostic;
     }
 
     public void Tick(
