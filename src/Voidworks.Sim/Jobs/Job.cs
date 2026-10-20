@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Voidworks.Sim.Crew;
 using Voidworks.Sim.Items;
+using Voidworks.Sim.Machinery;
 using Voidworks.Sim.Ship;
 
 namespace Voidworks.Sim.Jobs;
@@ -23,6 +24,10 @@ public sealed class Job
     public List<ItemType> AssistanceItemTypes { get; } = new();
     public List<Guid> FailedAssistantCrewIds { get; } = new();
     public double WorkRemainingSeconds { get; set; }
+    public TileType? ConstructTileType { get; set; }
+    public MachineType? ConstructMachineType { get; set; }
+    public int RequiredSteelPlates { get; set; }
+    public int RequiredMachineComponents { get; set; }
     public bool IsCompleted { get; set; }
     public bool IsCancelled { get; set; }
 
@@ -86,6 +91,53 @@ public sealed class Job
             DesiredItemType = ItemType.IronOre
         };
     }
+
+    public static Job CreateDeliverItem(GridCoord destination, Item item, int priority = 35)
+    {
+        return new Job(JobType.DeliverItem, destination, priority, workSeconds: 0.0,
+            $"Deliver {item.Name}")
+        {
+            TargetItem = item,
+            DesiredItemType = item.Type
+        };
+    }
+
+    public static Job CreateBuildTile(GridCoord target, TileType tileType, int steelPlates, double workSeconds)
+    {
+        if (tileType is not (TileType.HullWall or TileType.InteriorWall or TileType.Floor or TileType.Door))
+            throw new ArgumentOutOfRangeException(nameof(tileType), "Only ship structure tiles can be constructed.");
+        if (steelPlates < 0 || workSeconds < 0.0 || !double.IsFinite(workSeconds))
+            throw new ArgumentOutOfRangeException(nameof(steelPlates));
+
+        return new Job(JobType.Construct, target, priority: 30, workSeconds,
+            $"Construct {tileType} at {target}")
+        {
+            ConstructTileType = tileType,
+            RequiredSteelPlates = steelPlates
+        };
+    }
+
+    public static Job CreateInstallMachine(
+        GridCoord target,
+        MachineType machineType,
+        int steelPlates,
+        int machineComponents,
+        double workSeconds)
+    {
+        if (steelPlates < 0 || machineComponents < 0 || workSeconds < 0.0 || !double.IsFinite(workSeconds))
+            throw new ArgumentOutOfRangeException(nameof(steelPlates));
+
+        return new Job(JobType.Construct, target, priority: 30, workSeconds,
+            $"Install {machineType} at {target}")
+        {
+            ConstructMachineType = machineType,
+            RequiredSteelPlates = steelPlates,
+            RequiredMachineComponents = machineComponents
+        };
+    }
+
+    public bool IsConstructionOrder => Type == JobType.Construct &&
+        (ConstructTileType.HasValue ^ ConstructMachineType.HasValue);
 
     public static Job CreateAssistCrew(
         CrewMember requester,

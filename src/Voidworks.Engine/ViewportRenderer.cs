@@ -186,6 +186,8 @@ public sealed class ViewportRenderer
                 MachineType.FuelTank => 0xFF306060,           // Fuel canister teal
                 MachineType.MainEngine => 0xFF404050,         // Thruster nozzle
                 MachineType.Radiator => 0xFF706050,           // Radiator cooling fin
+                MachineType.ComponentFabricator => 0xFF905020,
+                MachineType.IceProcessor => 0xFF207080,
                 _ => 0xFF505050
             };
 
@@ -217,6 +219,8 @@ public sealed class ViewportRenderer
                     MachineType.FuelTank => "TNK",
                     MachineType.MainEngine => "ENG",
                     MachineType.Radiator => "RAD",
+                    MachineType.ComponentFabricator => "FAB",
+                    MachineType.IceProcessor => "ICE",
                     _ => "MAC"
                 };
                 drawList.AddText(pMin + new float2(camera.Zoom * 0.28f, camera.Zoom * 0.35f), 0xFFFFFFFF, tag);

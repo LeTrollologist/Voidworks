@@ -10,5 +10,6 @@ public enum ItemType
     IceOre,
     WaterRation,
     FoodRation,
-    FuelCanister
+    FuelCanister,
+    MachineComponent
 }

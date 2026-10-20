@@ -69,6 +69,16 @@ public sealed class Machine
     public double MiningCycleSeconds { get; set; } = 3.0;
     public int TotalOreExtracted { get; set; } = 0;
 
+    // Component fabricator output
+    public int ComponentsProduced { get; set; }
+    public double ComponentFabricationProgressSeconds { get; set; }
+    public double ComponentFabricationCycleSeconds { get; set; } = 8.0;
+    public bool IsComponentFabricationInProgress { get; set; }
+    public int WaterRationsProduced { get; set; }
+    public double IceProcessingProgressSeconds { get; set; }
+    public double IceProcessingCycleSeconds { get; set; } = 5.0;
+    public bool IsIceProcessingInProgress { get; set; }
+
     // Smelter Refinery
     public int IronOreStored { get; set; } = 0;
     public int SteelPlatesProduced { get; set; } = 0;
@@ -156,6 +166,18 @@ public sealed class Machine
                 PowerConsumptionKW = 1.0; // gimbal & igniter
                 ThrustKN = 50.0;
                 FuelBurnRateKgPerSecond = 2.5;
+                break;
+
+            case MachineType.ComponentFabricator:
+                PowerProductionKW = 0.0;
+                PowerConsumptionKW = 8.0;
+                ComponentFabricationCycleSeconds = 8.0;
+                break;
+
+            case MachineType.IceProcessor:
+                PowerProductionKW = 0.0;
+                PowerConsumptionKW = 3.0;
+                IceProcessingCycleSeconds = 5.0;
                 break;
         }
     }

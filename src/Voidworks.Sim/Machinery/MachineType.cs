@@ -11,5 +11,7 @@ public enum MachineType
     HydroponicsBay,
     FuelTank,
     MainEngine,
-    Radiator
+    Radiator,
+    ComponentFabricator,
+    IceProcessor
 }

@@ -271,6 +271,24 @@ public sealed class InspectionPanel
                     float gPct = (float)(selectedMachine.GrowthProgressSeconds / selectedMachine.GrowthCycleSeconds);
                     ImGui.ProgressBar(gPct, new float2(280f, 18f), $"Crop Growth: {gPct * 100f:F0}%");
                 }
+                else if (selectedMachine.Type == MachineType.ComponentFabricator)
+                {
+                    ImGui.Text($"Power Draw: {selectedMachine.PowerConsumptionKW:F1} kW");
+                    ImGui.Text("Recipe: 2 steel plates + 1 iron ore -> 1 machine component");
+                    ImGui.Text($"Components queued for output: {selectedMachine.ComponentsProduced}");
+                    float pct = (float)(selectedMachine.ComponentFabricationProgressSeconds /
+                                        selectedMachine.ComponentFabricationCycleSeconds);
+                    ImGui.ProgressBar(pct, new float2(280f, 18f), $"Fabricating: {pct * 100f:F0}%");
+                }
+                else if (selectedMachine.Type == MachineType.IceProcessor)
+                {
+                    ImGui.Text($"Power Draw: {selectedMachine.PowerConsumptionKW:F1} kW");
+                    ImGui.Text("Recipe: 1 ice ore -> 1 water ration");
+                    ImGui.Text($"Water rations queued for output: {selectedMachine.WaterRationsProduced}");
+                    float pct = (float)(selectedMachine.IceProcessingProgressSeconds /
+                                        selectedMachine.IceProcessingCycleSeconds);
+                    ImGui.ProgressBar(pct, new float2(280f, 18f), $"Processing ice: {pct * 100f:F0}%");
+                }
                 else if (selectedMachine.Type == MachineType.FuelTank)
                 {
                     ImGui.Text($"Propellant Stored: {selectedMachine.FuelStoredKg:F1} / {selectedMachine.FuelCapacityKg:F1} kg");
@@ -403,6 +421,8 @@ public sealed class InspectionPanel
                     ImGui.Text($"  Iron Ore: {tile.AsteroidIronOre} units");
                     ImGui.Text($"  Ice Ore:  {tile.AsteroidIceOre} units");
                 }
+
+                RenderConstructionOrders(sim, coord, tile);
 
                 // Cable & Plumbing Utilities
                 ImGui.Spacing();
@@ -605,6 +625,57 @@ public sealed class InspectionPanel
             ImGui.TextColored(new float4(1.0f, 0.3f, 0.2f, 1.0f), $"Loop leak: {plumbing.TotalCoolantLeakRateLitersPerSecond:F2} L/s");
         ImGui.Text($"Propellant flow: {plumbing.TotalPropellantFlowRateKgPerSec:F2} kg/s");
         ImGui.Separator();
+    }
+
+    private static void RenderConstructionOrders(SimulationState sim, GridCoord coord, ShipTile tile)
+    {
+        var pendingOrder = sim.JobManager.ActiveJobs.FirstOrDefault(job =>
+            job.Type == JobType.Construct && job.TargetCoord == coord);
+        if (pendingOrder != null)
+        {
+            ImGui.TextColored(new float4(1.0f, 0.8f, 0.3f, 1.0f), $"Construction queued: {pendingOrder.Name}");
+            return;
+        }
+
+        ImGui.Spacing();
+        ImGui.TextDisabled("Construction: crew needs a welding torch and listed materials.");
+
+        if (tile.Type == TileType.Space && coord.Cardinals().Any(adjacent =>
+                sim.Grid.IsInBounds(adjacent) && sim.Grid[adjacent].Type == TileType.Floor))
+        {
+            if (ImGui.Button("Build Hull Panel (2 steel)"))
+                sim.JobManager.PostJob(Job.CreateBuildTile(coord, TileType.HullWall, steelPlates: 2, workSeconds: 4.0));
+            ImGui.SameLine();
+            if (ImGui.Button("Build Floor (1 steel)"))
+                sim.JobManager.PostJob(Job.CreateBuildTile(coord, TileType.Floor, steelPlates: 1, workSeconds: 3.0));
+        }
+        else if (tile.Type == TileType.HullWall || tile.Type == TileType.InteriorWall)
+        {
+            if (!tile.IsBreached && ImGui.Button("Install Bulkhead Door (3 steel)"))
+                sim.JobManager.PostJob(Job.CreateBuildTile(coord, TileType.Door, steelPlates: 3, workSeconds: 5.0));
+        }
+        else if (tile.Type == TileType.Floor)
+        {
+            if (sim.Machines.Any(machine => machine.Position == coord))
+                ImGui.TextDisabled("This floor tile already has a machine.");
+            else
+            {
+                if (ImGui.Button("Build Component Fabricator (8 steel)"))
+                    sim.JobManager.PostJob(Job.CreateInstallMachine(coord, MachineType.ComponentFabricator, 8, 0, 15.0));
+                if (ImGui.Button("Build Ice Processor (5 steel + 1 component)"))
+                    sim.JobManager.PostJob(Job.CreateInstallMachine(coord, MachineType.IceProcessor, 5, 1, 10.0));
+                if (ImGui.Button("Build Mining Laser (6 steel + 1 component)"))
+                    sim.JobManager.PostJob(Job.CreateInstallMachine(coord, MachineType.MiningLaser, 6, 1, 12.0));
+                if (ImGui.Button("Build Smelter (6 steel)"))
+                    sim.JobManager.PostJob(Job.CreateInstallMachine(coord, MachineType.SmelterRefinery, 6, 0, 12.0));
+                if (ImGui.Button("Build Battery (4 steel)"))
+                    sim.JobManager.PostJob(Job.CreateInstallMachine(coord, MachineType.Battery, 4, 0, 8.0));
+                if (ImGui.Button("Build Reactor (10 steel + 2 components)"))
+                    sim.JobManager.PostJob(Job.CreateInstallMachine(coord, MachineType.Reactor, 10, 2, 24.0));
+                if (ImGui.Button("Build Main Engine (8 steel + 2 components)"))
+                    sim.JobManager.PostJob(Job.CreateInstallMachine(coord, MachineType.MainEngine, 8, 2, 20.0));
+            }
+        }
     }
 
     private void RenderPersistenceControls(SimulationState sim)

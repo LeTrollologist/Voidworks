@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Voidworks.Sim.Items;
 using Voidworks.Sim.Jobs;
+using Voidworks.Sim.Machinery;
 using Voidworks.Sim.Navigation;
 using Voidworks.Sim.Ship;
 
@@ -79,7 +80,8 @@ public sealed class CrewAI
         JobManager jobManager,
         double dt,
         int nearbyCrewCount = 0,
-        IReadOnlyList<CrewAI>? allCrew = null)
+        IReadOnlyList<CrewAI>? allCrew = null,
+        List<Machine>? machines = null)
     {
         if (dt <= 0) return;
 
@@ -281,7 +283,7 @@ public sealed class CrewAI
         // 3. Process current job
         if (CurrentJob != null)
         {
-            ExecuteCurrentJob(grid, jobManager, dt, allCrew);
+            ExecuteCurrentJob(grid, jobManager, dt, allCrew, machines);
             return;
         }
 
@@ -382,6 +384,21 @@ public sealed class CrewAI
             return;
         }
 
+        if (emergencyJob?.Type == JobType.Construct)
+        {
+            if (!PlanConstructionPrerequisites(jobManager, emergencyJob))
+            {
+                jobManager.ReleaseJob(emergencyJob);
+                emergencyPlanFailed = true;
+                CurrentActivity = "Waiting for construction materials";
+            }
+            else if (_subJobs.Count > 0)
+            {
+                CurrentJob = _subJobs.Dequeue();
+                return;
+            }
+        }
+
         // Routine tasks
         if (emergencyJob != null && !emergencyPlanFailed)
         {
@@ -474,7 +491,84 @@ public sealed class CrewAI
         }
     }
 
-    private void ExecuteCurrentJob(ShipGrid grid, JobManager jobManager, double dt, IReadOnlyList<CrewAI>? allCrew)
+    private bool PlanConstructionPrerequisites(JobManager jobManager, Job constructionJob)
+    {
+        _subJobs.Clear();
+        var missingTypes = new List<ItemType>();
+        var missingResources = new List<string>();
+        var queuedItemIds = new HashSet<Guid>();
+        var itemsToFetch = new List<Item>();
+
+        CollectRequired(ItemType.SteelPlate, constructionJob.RequiredSteelPlates);
+        CollectRequired(ItemType.MachineComponent, constructionJob.RequiredMachineComponents);
+
+        Item? torch = Crew.HasItem(ItemType.WeldingTorch)
+            ? null
+            : jobManager.FindAvailableItem(ItemType.WeldingTorch, Crew.Position, Crew.Id);
+        if (!Crew.HasItem(ItemType.WeldingTorch) && torch == null)
+        {
+            missingTypes.Add(ItemType.WeldingTorch);
+            missingResources.Add("welding torch");
+        }
+
+        if (missingResources.Count > 0)
+        {
+            RecordTaskFailure(new CrewDecisionDiagnostic(
+                CrewDiagnosticReason.ResourceUnavailable,
+                constructionJob.TargetCoord,
+                Crew.Position,
+                null,
+                $"Required for construction: {string.Join(", ", missingResources)}."),
+                constructionJob,
+                jobManager,
+                missingTypes);
+            return false;
+        }
+
+        foreach (var item in itemsToFetch)
+        {
+            item.ReservedByCrewId = Crew.Id;
+            _subJobs.Enqueue(Job.CreateFetchItem(item, priority: 35));
+        }
+        if (torch != null)
+        {
+            torch.ReservedByCrewId = Crew.Id;
+            _subJobs.Enqueue(Job.CreateFetchItem(torch, priority: 35));
+        }
+        _subJobs.Enqueue(constructionJob);
+        return true;
+
+        void CollectRequired(ItemType type, int count)
+        {
+            int held = Crew.Inventory.Count(item => item.Type == type);
+            int needed = Math.Max(0, count - held);
+            if (needed == 0) return;
+
+            var available = jobManager.WorldItems
+                .Where(item => item.Type == type && !item.IsCarried &&
+                    (item.IsAvailable || item.ReservedByCrewId == Crew.Id) &&
+                    !queuedItemIds.Contains(item.Id))
+                .OrderBy(item => Math.Abs(item.Position.X - Crew.Position.X) +
+                                 Math.Abs(item.Position.Y - Crew.Position.Y))
+                .Take(needed)
+                .ToList();
+            itemsToFetch.AddRange(available);
+            foreach (var item in available) queuedItemIds.Add(item.Id);
+
+            if (available.Count < needed)
+            {
+                missingTypes.Add(type);
+                missingResources.Add($"{type} x{needed - available.Count}");
+            }
+        }
+    }
+
+    private void ExecuteCurrentJob(
+        ShipGrid grid,
+        JobManager jobManager,
+        double dt,
+        IReadOnlyList<CrewAI>? allCrew,
+        List<Machine>? machines)
     {
         switch (CurrentJob!.Type)
         {
@@ -492,6 +586,14 @@ public sealed class CrewAI
 
             case JobType.RefineOre:
                 ExecuteRefineOre(grid, jobManager);
+                break;
+
+            case JobType.DeliverItem:
+                ExecuteDeliverItem(grid, jobManager);
+                break;
+
+            case JobType.Construct:
+                ExecuteConstruction(grid, jobManager, dt, machines);
                 break;
 
             case JobType.EatFood:
@@ -630,6 +732,194 @@ public sealed class CrewAI
         _currentPath = pathToSmelter;
         CurrentActivity = "Delivering iron ore to the refinery";
     }
+
+    private void ExecuteDeliverItem(ShipGrid grid, JobManager jobManager)
+    {
+        var job = CurrentJob!;
+        var item = job.TargetItem;
+        if (item == null || (job.DesiredItemType.HasValue && item.Type != job.DesiredItemType.Value))
+        {
+            jobManager.CompleteJob(job);
+            CurrentJob = null;
+            return;
+        }
+
+        if (!Crew.Inventory.Contains(item))
+        {
+            if (item.IsCarried || (item.ReservedByCrewId.HasValue && item.ReservedByCrewId != Crew.Id))
+            {
+                jobManager.ReleaseJob(job);
+                CurrentJob = null;
+                return;
+            }
+
+            int itemDistance = Math.Abs(Crew.Position.X - item.Position.X) + Math.Abs(Crew.Position.Y - item.Position.Y);
+            if (itemDistance <= 1)
+            {
+                item.ReservedByCrewId = null;
+                if (Crew.PickUp(item))
+                {
+                    item.ReservedByCrewId = Crew.Id;
+                    jobManager.RemoveItem(item);
+                    CurrentActivity = $"Picked up {item.Name} for delivery";
+                }
+                return;
+            }
+
+            var pickupRoute = AStarPathfinder.FindPathWithDiagnostics(grid, Crew.Position, item.Position, Crew);
+            if (pickupRoute.Path == null || pickupRoute.Path.Count <= 1)
+            {
+                RecordNavigationFailure(pickupRoute, item.Position, jobManager);
+                jobManager.ReleaseJobForRetry(job, Crew.Id);
+                CurrentJob = null;
+                return;
+            }
+
+            ClearFailureAfterSuccess();
+            pickupRoute.Path.RemoveAt(0);
+            _currentPath = pickupRoute.Path;
+            CurrentActivity = $"Navigating to {item.Name}";
+            return;
+        }
+
+        int destinationDistance = Math.Abs(Crew.Position.X - job.TargetCoord.X) +
+            Math.Abs(Crew.Position.Y - job.TargetCoord.Y);
+        if (destinationDistance <= 1)
+        {
+            Crew.Drop(item, job.TargetCoord);
+            item.ReservedByCrewId = null;
+            jobManager.AddItem(item);
+            jobManager.CompleteJob(job);
+            CurrentActivity = $"Delivered {item.Name}";
+            CurrentJob = null;
+            return;
+        }
+
+        var destinationRoute = AStarPathfinder.FindPathWithDiagnostics(grid, Crew.Position, job.TargetCoord, Crew);
+        if (destinationRoute.Path == null || destinationRoute.Path.Count <= 1)
+        {
+            RecordNavigationFailure(destinationRoute, job.TargetCoord, jobManager);
+            jobManager.ReleaseJobForRetry(job, Crew.Id);
+            CurrentJob = null;
+            return;
+        }
+
+        ClearFailureAfterSuccess();
+        destinationRoute.Path.RemoveAt(0);
+        _currentPath = destinationRoute.Path;
+        CurrentActivity = $"Delivering {item.Name}";
+    }
+
+    private void ExecuteConstruction(
+        ShipGrid grid, JobManager jobManager, double dt, List<Machine>? machines)
+    {
+        var job = CurrentJob!;
+        if (!job.IsConstructionOrder)
+        {
+            jobManager.CancelJob(job);
+            CurrentJob = null;
+            CurrentActivity = "Invalid construction order cancelled";
+            return;
+        }
+
+        bool validSite = job.ConstructTileType.HasValue
+            ? CanConstructTileAt(grid, job.TargetCoord, job.ConstructTileType.Value)
+            : grid.IsInBounds(job.TargetCoord) && machines != null && job.ConstructMachineType.HasValue &&
+              grid[job.TargetCoord].Type == TileType.Floor &&
+              !machines.Any(machine => machine.Position == job.TargetCoord);
+        if (!validSite)
+        {
+            jobManager.CancelJob(job);
+            CurrentJob = null;
+            _currentPath = null;
+            CurrentActivity = "Construction site changed; order cancelled";
+            return;
+        }
+
+        int distance = Math.Abs(Crew.Position.X - job.TargetCoord.X) +
+            Math.Abs(Crew.Position.Y - job.TargetCoord.Y);
+        if (distance > 1)
+        {
+            var route = AStarPathfinder.FindPathToAdjacentWithDiagnostics(grid, Crew.Position, job.TargetCoord, Crew);
+            if (route.Path == null || route.Path.Count <= 1)
+            {
+                RecordNavigationFailure(route, job.TargetCoord, jobManager);
+                jobManager.ReleaseJob(job);
+                CurrentJob = null;
+                _currentPath = null;
+                return;
+            }
+
+            ClearFailureAfterSuccess();
+            route.Path.RemoveAt(0);
+            _currentPath = route.Path;
+            CurrentActivity = $"Moving to construction site at {job.TargetCoord}";
+            return;
+        }
+
+        var plates = Crew.Inventory.Where(item => item.Type == ItemType.SteelPlate)
+            .Take(job.RequiredSteelPlates).ToList();
+        var components = Crew.Inventory.Where(item => item.Type == ItemType.MachineComponent)
+            .Take(job.RequiredMachineComponents).ToList();
+        if (plates.Count != job.RequiredSteelPlates || components.Count != job.RequiredMachineComponents ||
+            !Crew.HasItem(ItemType.WeldingTorch))
+        {
+            jobManager.ReleaseJob(job);
+            CurrentJob = null;
+            _subJobs.Clear();
+            CurrentActivity = "Construction materials missing; order returned to queue";
+            return;
+        }
+
+        job.WorkRemainingSeconds = Math.Max(
+            0.0, job.WorkRemainingSeconds - dt * Crew.Psychology.WorkRateMultiplier);
+        if (job.WorkRemainingSeconds > 0.0)
+        {
+            CurrentActivity = $"Constructing at {job.TargetCoord} ({job.WorkRemainingSeconds:F1}s)";
+            return;
+        }
+
+        foreach (var material in plates.Concat(components))
+            Crew.Inventory.Remove(material);
+
+        if (job.ConstructTileType.HasValue)
+        {
+            var tile = grid[job.TargetCoord];
+            tile.Type = job.ConstructTileType.Value;
+            tile.IsBreached = false;
+            if (tile.Type == TileType.Door)
+                tile.DoorState = DoorState.Closed;
+        }
+        else
+        {
+            var type = job.ConstructMachineType!.Value;
+            var installedMachines = machines!;
+            int count = installedMachines.Count(machine => machine.Type == type) + 1;
+            installedMachines.Add(new Machine(type, job.TargetCoord, $"{type} {count}"));
+        }
+
+        jobManager.CompleteJob(job);
+        CurrentJob = null;
+        _currentPath = null;
+        CurrentActivity = $"Construction complete at {job.TargetCoord}";
+    }
+
+    private static bool CanConstructTileAt(ShipGrid grid, GridCoord target, TileType requestedType)
+    {
+        if (!grid.IsInBounds(target)) return false;
+        var tile = grid[target];
+        return requestedType switch
+        {
+            TileType.HullWall => tile.Type == TileType.Space && HasAdjacentFloor(grid, target),
+            TileType.Floor => tile.Type == TileType.Space && HasAdjacentFloor(grid, target),
+            TileType.InteriorWall => tile.Type == TileType.Floor && !tile.IsBreached,
+            TileType.Door => (tile.Type is TileType.HullWall or TileType.InteriorWall) && !tile.IsBreached,
+            _ => false
+        };
+    }
+
+    private static bool HasAdjacentFloor(ShipGrid grid, GridCoord target)
+        => target.Cardinals().Any(coord => grid.IsInBounds(coord) && grid[coord].Type == TileType.Floor);
 
     private void ExecuteEquipSuit()
     {

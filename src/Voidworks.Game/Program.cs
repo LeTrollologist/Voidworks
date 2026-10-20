@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Linq;
 using Voidworks.Engine;
 using Voidworks.Sim;
@@ -7,13 +8,15 @@ using Voidworks.Sim.Crew;
 using Voidworks.Sim.Items;
 using Voidworks.Sim.Jobs;
 using Voidworks.Sim.Machinery;
+using Voidworks.Sim.Persistence;
 using Voidworks.Sim.Plumbing;
 using Voidworks.Sim.Scenarios;
 using Voidworks.Sim.Ship;
 
-bool forceConsole = args.Contains("--console", StringComparer.OrdinalIgnoreCase) ||
-                    args.Contains("--headless", StringComparer.OrdinalIgnoreCase);
 string? requestedScenarioId = null;
+string? loadPath = null;
+string? savePath = null;
+int? requestedTicks = null;
 for (int i = 0; i < args.Length; i++)
 {
     if (args[i].Equals("--scenario", StringComparison.OrdinalIgnoreCase))
@@ -26,7 +29,30 @@ for (int i = 0; i < args.Length; i++)
     {
         requestedScenarioId = args[i]["--scenario=".Length..];
     }
+    else if (args[i].Equals("--load", StringComparison.OrdinalIgnoreCase))
+    {
+        if (++i >= args.Length) throw new ArgumentException("Expected a file path after --load.");
+        loadPath = args[i];
+    }
+    else if (args[i].Equals("--save", StringComparison.OrdinalIgnoreCase))
+    {
+        if (++i >= args.Length) throw new ArgumentException("Expected a file path after --save.");
+        savePath = args[i];
+    }
+    else if (args[i].Equals("--ticks", StringComparison.OrdinalIgnoreCase))
+    {
+        if (++i >= args.Length || !int.TryParse(args[i], out int parsedTicks) || parsedTicks < 0)
+            throw new ArgumentException("Expected a non-negative whole number after --ticks.");
+        requestedTicks = parsedTicks;
+    }
 }
+
+if (loadPath != null && requestedScenarioId != null)
+    throw new ArgumentException("Use the scenario stored in the save file, or start a new --scenario run; the options cannot be combined.");
+
+bool forceConsole = args.Contains("--console", StringComparer.OrdinalIgnoreCase) ||
+                    args.Contains("--headless", StringComparer.OrdinalIgnoreCase) ||
+                    loadPath != null || savePath != null || requestedTicks.HasValue;
 
 Console.WriteLine("==================================================================");
 Console.WriteLine("                 VOIDWORKS - THE LIVING HULL                      ");
@@ -120,7 +146,7 @@ for (int x = 10; x <= 15; x++)
 }
 
 // 6. Crew Complement
-var engineer = new CrewMember("Engineer Miller", new GridCoord(11, 4), "Engineer");
+CrewMember? engineer = new CrewMember("Engineer Miller", new GridCoord(11, 4), "Engineer");
 engineer.MoveSpeed = 2.5;
 
 var botanist = new CrewMember("Botanist Chen", new GridCoord(4, 2), "Botanist");
@@ -142,8 +168,19 @@ if (requestedScenarioId != null)
     Console.WriteLine($"[Scenario] {scenario.Title}: {scenario.Description}");
 }
 
+if (loadPath != null)
+{
+    sim = SimulationSerializer.LoadFromFile(loadPath);
+    grid = sim.Grid;
+    jobManager = sim.JobManager;
+    engineer = sim.Crew.Select(agent => agent.Crew)
+        .FirstOrDefault(crew => crew.Role.Equals("Engineer", StringComparison.OrdinalIgnoreCase))
+        ?? sim.Crew.FirstOrDefault()?.Crew;
+    Console.WriteLine($"[Save] Loaded simulation from {Path.GetFullPath(loadPath)}.");
+}
+
 Console.WriteLine("[Status] Ship power grid, plumbing conduits, life support, and industry online.");
-Console.WriteLine($"[Status] Crew Complement: {engineer.Name} ({engineer.Role}), {botanist.Name} ({botanist.Role}), {pilot.Name} ({pilot.Role}).");
+Console.WriteLine($"[Status] Crew Complement: {string.Join(", ", sim.Crew.Select(agent => $"{agent.Crew.Name} ({agent.Crew.Role})"))}.");
 Console.WriteLine("[Status] Exterior asteroid field detected off starboard bow (Iron & Ice ore).");
 
 if (!forceConsole)
@@ -164,18 +201,52 @@ if (!forceConsole)
     }
 }
 
+if (requestedTicks.HasValue)
+{
+    for (int tick = 0; tick < requestedTicks.Value; tick++)
+        sim.Step(SimulationState.FixedTickDt);
+
+    Console.WriteLine($"[T+{sim.SimTime:F1}s] Advanced {requestedTicks.Value} fixed ticks.");
+    if (savePath != null)
+    {
+        SimulationSerializer.SaveToFile(sim, savePath);
+        Console.WriteLine($"[Save] Wrote simulation to {Path.GetFullPath(savePath)}.");
+    }
+    return;
+}
+
 if (sim.ActiveScenario != null)
 {
     var scenario = sim.ActiveScenario;
     Console.WriteLine($"[Scenario] Running {scenario.Title} in headless mode.");
-    double duration = scenario.TimeLimitSeconds ?? 30.0;
-    while (!scenario.IsCompleted && !scenario.IsFailed && sim.SimTime < duration)
+    double runUntilElapsed = scenario.TimeLimitSeconds ?? scenario.ElapsedSeconds + 30.0;
+    while (!scenario.IsCompleted && !scenario.IsFailed && scenario.ElapsedSeconds < runUntilElapsed)
         sim.Step(SimulationState.FixedTickDt);
 
     string result = scenario.IsCompleted
         ? "Scenario complete."
         : $"Scenario failed: {scenario.FailureReason ?? "time limit reached"}";
     Console.WriteLine($"[T+{sim.SimTime:F1}s] {result}");
+    if (savePath != null)
+    {
+        SimulationSerializer.SaveToFile(sim, savePath);
+        Console.WriteLine($"[Save] Wrote simulation to {Path.GetFullPath(savePath)}.");
+    }
+    return;
+}
+
+if (loadPath != null)
+{
+    double runUntil = sim.SimTime + 30.0;
+    while (sim.SimTime < runUntil)
+        sim.Step(SimulationState.FixedTickDt);
+
+    Console.WriteLine($"[T+{sim.SimTime:F1}s] Advanced the loaded simulation by 30 seconds.");
+    if (savePath != null)
+    {
+        SimulationSerializer.SaveToFile(sim, savePath);
+        Console.WriteLine($"[Save] Wrote simulation to {Path.GetFullPath(savePath)}.");
+    }
     return;
 }
 
@@ -193,9 +264,17 @@ while (simTime < 30.0)
 
     if (!grid[16, 4].IsBreached)
     {
-        Console.WriteLine($"\n[T+{simTime:F1}s] Breach at (16, 4) successfully repaired by {engineer.Name}!");
+        string repairerName = engineer?.Name ?? "the crew";
+        Console.WriteLine($"\n[T+{simTime:F1}s] Breach at (16, 4) successfully repaired by {repairerName}!");
         break;
     }
 }
 
-Console.WriteLine($"Mission Complete. Engineer Health: {engineer.Physiology.Health:F0}%, O2 Saturation: {engineer.Physiology.OxygenSaturation:F0}%.");
+Console.WriteLine(engineer == null
+    ? "Mission Complete. No crew member was available for the final status report."
+    : $"Mission Complete. {engineer.Name} Health: {engineer.Physiology.Health:F0}%, O2 Saturation: {engineer.Physiology.OxygenSaturation:F0}%.");
+if (savePath != null)
+{
+    SimulationSerializer.SaveToFile(sim, savePath);
+    Console.WriteLine($"[Save] Wrote simulation to {Path.GetFullPath(savePath)}.");
+}

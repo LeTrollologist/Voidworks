@@ -18,7 +18,7 @@ namespace Voidworks.Sim.Persistence;
 
 public static class SimulationSerializer
 {
-    private const int CurrentSaveFormatVersion = 1;
+    private const int CurrentSaveFormatVersion = 2;
     private const long MaximumSavedGridTileCount = 1_000_000;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -94,6 +94,8 @@ public static class SimulationSerializer
             PropellantPipeCapacityKgPerSecond = sim.PlumbingSolver.PropellantPipeCapacityKgPerSecond,
             IsPaused = sim.IsPaused,
             TimeScale = sim.TimeScale,
+            AtmosphereDiffusionRate = sim.AtmosphereSolver.DiffusionRate,
+            AtmosphereVentingRate = sim.AtmosphereSolver.VentingRate,
             GridWidth = sim.Grid.Width,
             GridHeight = sim.Grid.Height,
             Tiles = sim.Grid.AllTiles().Select(t => new TileSaveDto
@@ -157,7 +159,15 @@ public static class SimulationSerializer
                 IsFiring = m.IsFiring,
                 Thrust = m.ThrustKN,
                 FuelBurnRate = m.FuelBurnRateKgPerSecond,
-                TotalOreExtracted = m.TotalOreExtracted
+                TotalOreExtracted = m.TotalOreExtracted,
+                ComponentsProduced = m.ComponentsProduced,
+                ComponentFabricationProgress = m.ComponentFabricationProgressSeconds,
+                ComponentFabricationCycle = m.ComponentFabricationCycleSeconds,
+                IsComponentFabricationInProgress = m.IsComponentFabricationInProgress,
+                WaterRationsProduced = m.WaterRationsProduced,
+                IceProcessingProgress = m.IceProcessingProgressSeconds,
+                IceProcessingCycle = m.IceProcessingCycleSeconds,
+                IsIceProcessingInProgress = m.IsIceProcessingInProgress
             }).ToList(),
             Cables = sim.Cables.Select(c => new CoordDto { X = c.X, Y = c.Y }).ToList(),
             CoolantPipes = sim.PlumbingSolver.CoolantPipes.Select(c => new CoordDto { X = c.X, Y = c.Y }).ToList(),
@@ -266,6 +276,8 @@ public static class SimulationSerializer
         sim.IsPaused = dto.IsPaused;
         sim.TimeScale = dto.TimeScale;
         sim.RestoreClock(dto.SimTime, dto.UpdateAccumulator);
+        sim.AtmosphereSolver.DiffusionRate = dto.AtmosphereDiffusionRate;
+        sim.AtmosphereSolver.VentingRate = dto.AtmosphereVentingRate;
         sim.PowerGridSolver.CableCapacityKW = dto.CableCapacityKW;
         sim.PlumbingSolver.CoolantCapacityLiters = dto.CoolantCapacityLiters;
         sim.PlumbingSolver.CoolantStoredLiters = dto.CoolantStoredLiters;
@@ -313,7 +325,15 @@ public static class SimulationSerializer
                 FuelBurnRateKgPerSecond = mDto.FuelBurnRate,
                 MiningProgressSeconds = mDto.MiningProgress,
                 MiningCycleSeconds = mDto.MiningCycle,
-                TotalOreExtracted = mDto.TotalOreExtracted
+                TotalOreExtracted = mDto.TotalOreExtracted,
+                ComponentsProduced = mDto.ComponentsProduced,
+                ComponentFabricationProgressSeconds = mDto.ComponentFabricationProgress,
+                ComponentFabricationCycleSeconds = mDto.ComponentFabricationCycle,
+                IsComponentFabricationInProgress = mDto.IsComponentFabricationInProgress,
+                WaterRationsProduced = mDto.WaterRationsProduced,
+                IceProcessingProgressSeconds = mDto.IceProcessingProgress,
+                IceProcessingCycleSeconds = mDto.IceProcessingCycle,
+                IsIceProcessingInProgress = mDto.IsIceProcessingInProgress
             };
             m.SetPowerFraction(mDto.PowerFraction ?? (mDto.IsPowered ? 1.0 : 0.0));
             if (mDto.TargetAsteroidX.HasValue && mDto.TargetAsteroidY.HasValue)
@@ -483,6 +503,9 @@ public static class SimulationSerializer
         ];
         if (plumbingValues.Any(value => !double.IsFinite(value) || value < 0.0))
             throw new InvalidDataException("Save data contains invalid utility system values.");
+        if (!double.IsFinite(dto.AtmosphereDiffusionRate) || dto.AtmosphereDiffusionRate < 0.0 ||
+            !double.IsFinite(dto.AtmosphereVentingRate) || dto.AtmosphereVentingRate < 0.0)
+            throw new InvalidDataException("Save data contains invalid atmosphere solver values.");
 
         if (dto.Tiles.Count != tileCount)
             throw new InvalidDataException(
@@ -535,11 +558,15 @@ public static class SimulationSerializer
                 machine.MiningProgress, machine.MiningCycle, machine.SmeltProgress,
                 machine.SmeltCycle, machine.WaterStored, machine.GrowthProgress,
                 machine.GrowthCycle, machine.FuelStored, machine.FuelCapacity,
-                machine.Thrust, machine.FuelBurnRate
+                machine.Thrust, machine.FuelBurnRate, machine.ComponentFabricationProgress,
+                machine.ComponentFabricationCycle, machine.IceProcessingProgress,
+                machine.IceProcessingCycle
             ];
             if (machineValues.Any(value => !double.IsFinite(value) || value < 0.0) ||
                 machine.IronOreStored < 0 || machine.SteelPlatesProduced < 0 ||
-                machine.FoodProduced < 0 || machine.TotalOreExtracted < 0)
+                machine.FoodProduced < 0 || machine.TotalOreExtracted < 0 ||
+                machine.ComponentsProduced < 0 || machine.WaterRationsProduced < 0 ||
+                machine.ComponentFabricationCycle <= 0.0 || machine.IceProcessingCycle <= 0.0)
                 throw new InvalidDataException($"Machine '{machine.Name}' contains invalid operating values.");
             if (machine.PowerFraction.HasValue &&
                 (!double.IsFinite(machine.PowerFraction.Value) || machine.PowerFraction.Value < 0.0 || machine.PowerFraction.Value > 1.0))
@@ -597,9 +624,17 @@ public static class SimulationSerializer
             if (crew.Inventory == null || crew.CurrentPath == null || crew.PendingSubJobs == null)
                 throw new InvalidDataException($"Crew member '{crew.Name}' contains a missing or null collection.");
             foreach (var item in crew.Inventory)
+            {
                 ValidateItem(item, itemIds, dto.GridWidth, dto.GridHeight);
+                if (!item.IsCarried)
+                    throw new InvalidDataException($"Crew member '{crew.Name}' inventory contains an item that is not marked as carried.");
+            }
             if (crew.EquippedTank != null)
+            {
                 ValidateItem(crew.EquippedTank, itemIds, dto.GridWidth, dto.GridHeight);
+                if (!crew.EquippedTank.IsCarried)
+                    throw new InvalidDataException($"Crew member '{crew.Name}' equipped tank is not marked as carried.");
+            }
             foreach (var coord in crew.CurrentPath)
             {
                 if (coord == null)
@@ -635,6 +670,20 @@ public static class SimulationSerializer
                 throw new InvalidDataException($"Job '{job.Name}' references a missing target crew member.");
         }
 
+        foreach (var item in dto.WorldItems.Concat(dto.Crew
+                     .SelectMany(crew => crew.Inventory.Concat(
+                         crew.EquippedTank == null
+                             ? Enumerable.Empty<ItemSaveDto>()
+                             : new[] { crew.EquippedTank }))))
+        {
+            if (item.IsCarried && !dto.Crew.Any(crew =>
+                    crew.Inventory.Any(inventoryItem => inventoryItem.Id == item.Id) ||
+                    crew.EquippedTank?.Id == item.Id))
+                throw new InvalidDataException($"Item '{item.Name}' is marked as carried but is not owned by a crew member.");
+            if (item.ReservedByCrewId.HasValue && !crewIds.Contains(item.ReservedByCrewId.Value))
+                throw new InvalidDataException($"Item '{item.Name}' is reserved by a missing crew member.");
+        }
+
         if (dto.ScenarioCompleted && dto.ScenarioFailed)
             throw new InvalidDataException("Save data cannot mark a scenario both completed and failed.");
         if (dto.ScenarioElapsed.HasValue)
@@ -643,7 +692,8 @@ public static class SimulationSerializer
             (!double.IsFinite(dto.ScenarioTimeLimit.Value) || dto.ScenarioTimeLimit.Value <= 0.0))
             throw new InvalidDataException("Save data contains an invalid scenario time limit.");
         if (string.IsNullOrWhiteSpace(dto.ScenarioId) &&
-            (dto.ScenarioCompleted || dto.ScenarioFailed || dto.ScenarioObjectives.Count > 0))
+            (dto.ScenarioCompleted || dto.ScenarioFailed || dto.ScenarioObjectives.Count > 0 ||
+             dto.ScenarioElapsed.HasValue || dto.ScenarioTimeLimit.HasValue || dto.ScenarioFailureReason != null))
             throw new InvalidDataException("Save data contains scenario progress without a scenario id.");
         if (dto.ScenarioObjectives.Any(objective => objective == null || string.IsNullOrWhiteSpace(objective.Id)))
             throw new InvalidDataException("Save data contains an invalid scenario objective.");
@@ -723,6 +773,20 @@ public static class SimulationSerializer
             throw new InvalidDataException($"Job '{job.Name}' contains a missing or null collection.");
         if (job.AssistanceItemTypes.Any(type => !Enum.IsDefined(typeof(ItemType), type)))
             throw new InvalidDataException($"Job '{job.Name}' contains an unknown assistance item type.");
+        if (job.RequiredSteelPlates < 0 || job.RequiredMachineComponents < 0)
+            throw new InvalidDataException($"Job '{job.Name}' contains negative construction costs.");
+        if (job.Type == JobType.Construct)
+        {
+            if (job.ConstructTileType.HasValue == job.ConstructMachineType.HasValue ||
+                job.ConstructTileType.HasValue && !Enum.IsDefined(typeof(TileType), job.ConstructTileType.Value) ||
+                job.ConstructMachineType.HasValue && !Enum.IsDefined(typeof(MachineType), job.ConstructMachineType.Value))
+                throw new InvalidDataException($"Job '{job.Name}' contains an invalid construction target.");
+        }
+        else if (job.ConstructTileType.HasValue || job.ConstructMachineType.HasValue ||
+                 job.RequiredSteelPlates > 0 || job.RequiredMachineComponents > 0)
+        {
+            throw new InvalidDataException($"Non-construction job '{job.Name}' contains construction data.");
+        }
     }
 
     private static void ValidateDiagnostic(
@@ -823,6 +887,10 @@ public static class SimulationSerializer
         Priority = job.Priority,
         AssignedCrewId = job.AssignedCrewId,
         WorkRemaining = job.WorkRemainingSeconds,
+        ConstructTileType = job.ConstructTileType,
+        ConstructMachineType = job.ConstructMachineType,
+        RequiredSteelPlates = job.RequiredSteelPlates,
+        RequiredMachineComponents = job.RequiredMachineComponents,
         IsCompleted = job.IsCompleted,
         IsCancelled = job.IsCancelled
     };
@@ -844,6 +912,10 @@ public static class SimulationSerializer
             TargetCrewId = dto.TargetCrewId,
             SourceTaskJobId = dto.SourceTaskJobId,
             AssistanceReason = dto.AssistanceReason,
+            ConstructTileType = dto.ConstructTileType,
+            ConstructMachineType = dto.ConstructMachineType,
+            RequiredSteelPlates = dto.RequiredSteelPlates,
+            RequiredMachineComponents = dto.RequiredMachineComponents,
             IsCompleted = dto.IsCompleted,
             IsCancelled = dto.IsCancelled
         };
@@ -871,6 +943,8 @@ public sealed class SimulationSaveDto
     public double PropellantPipeCapacityKgPerSecond { get; set; } = 5.0;
     public bool IsPaused { get; set; }
     public double TimeScale { get; set; } = 1.0;
+    public double AtmosphereDiffusionRate { get; set; } = 6.0;
+    public double AtmosphereVentingRate { get; set; } = 5.0;
     public int GridWidth { get; set; }
     public int GridHeight { get; set; }
     public List<TileSaveDto> Tiles { get; set; } = new();
@@ -953,6 +1027,14 @@ public sealed class MachineSaveDto
     public double Thrust { get; set; } = 50.0;
     public double FuelBurnRate { get; set; } = 2.5;
     public int TotalOreExtracted { get; set; }
+    public int ComponentsProduced { get; set; }
+    public double ComponentFabricationProgress { get; set; }
+    public double ComponentFabricationCycle { get; set; } = 8.0;
+    public bool IsComponentFabricationInProgress { get; set; }
+    public int WaterRationsProduced { get; set; }
+    public double IceProcessingProgress { get; set; }
+    public double IceProcessingCycle { get; set; } = 5.0;
+    public bool IsIceProcessingInProgress { get; set; }
 }
 
 public sealed class CoordDto
@@ -1041,6 +1123,10 @@ public sealed class JobSaveDto
     public int Priority { get; set; }
     public Guid? AssignedCrewId { get; set; }
     public double WorkRemaining { get; set; }
+    public TileType? ConstructTileType { get; set; }
+    public MachineType? ConstructMachineType { get; set; }
+    public int RequiredSteelPlates { get; set; }
+    public int RequiredMachineComponents { get; set; }
     public bool IsCompleted { get; set; }
     public bool IsCancelled { get; set; }
 }

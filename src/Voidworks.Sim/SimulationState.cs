@@ -70,7 +70,7 @@ public sealed class SimulationState
                 other.Crew.Physiology.IsAlive && !other.Crew.Physiology.IsIncapacitated &&
                 Math.Abs(other.Crew.Position.X - c.Crew.Position.X) +
                 Math.Abs(other.Crew.Position.Y - c.Crew.Position.Y) <= 2);
-            c.Tick(Grid, JobManager, dt, nearbyCrewCount, Crew);
+            c.Tick(Grid, JobManager, dt, nearbyCrewCount, Crew, Machines);
         }
 
         // 7. Detect world emergencies (breaches, broken systems)
@@ -95,6 +95,7 @@ public sealed class SimulationState
 
     private void TickIndustrialLogistics(double dt)
     {
+        PostProcessorInputDeliveryJobs();
         PostOreDeliveryJobs();
 
         foreach (var m in Machines)
@@ -168,6 +169,119 @@ public sealed class SimulationState
                     JobManager.AddItem(new Item(ItemType.FoodRation, m.Position));
                 }
             }
+            else if (m.Type == MachineType.ComponentFabricator)
+            {
+                var steel = JobManager.WorldItems
+                    .Where(item => item.Position == m.Position && item.Type == ItemType.SteelPlate && item.IsAvailable)
+                    .Take(2).ToList();
+                var iron = JobManager.WorldItems.FirstOrDefault(item =>
+                    item.Position == m.Position && item.Type == ItemType.IronOre && item.IsAvailable);
+
+                if (m.ComponentsProduced > 0)
+                {
+                    m.ComponentsProduced--;
+                    JobManager.AddItem(new Item(ItemType.MachineComponent, m.Position));
+                }
+                else
+                {
+                    if (!m.IsComponentFabricationInProgress && steel.Count == 2 && iron != null)
+                    {
+                        foreach (var plate in steel) JobManager.RemoveItem(plate);
+                        JobManager.RemoveItem(iron);
+                        m.IsComponentFabricationInProgress = true;
+                    }
+
+                    if (m.IsComponentFabricationInProgress)
+                    {
+                        m.ComponentFabricationProgressSeconds += dt * m.PowerFraction;
+                        if (m.ComponentFabricationProgressSeconds >= m.ComponentFabricationCycleSeconds)
+                        {
+                            m.ComponentFabricationProgressSeconds -= m.ComponentFabricationCycleSeconds;
+                            m.ComponentsProduced++;
+                            m.IsComponentFabricationInProgress = false;
+                        }
+                    }
+                }
+            }
+            else if (m.Type == MachineType.IceProcessor)
+            {
+                if (m.WaterRationsProduced > 0)
+                {
+                    m.WaterRationsProduced--;
+                    JobManager.AddItem(new Item(ItemType.WaterRation, m.Position));
+                }
+                else
+                {
+                    if (!m.IsIceProcessingInProgress)
+                    {
+                        var ice = JobManager.WorldItems.FirstOrDefault(item =>
+                            item.Position == m.Position && item.Type == ItemType.IceOre && item.IsAvailable);
+                        if (ice != null)
+                        {
+                            JobManager.RemoveItem(ice);
+                            m.IsIceProcessingInProgress = true;
+                        }
+                    }
+
+                    if (m.IsIceProcessingInProgress)
+                    {
+                        m.IceProcessingProgressSeconds += dt * m.PowerFraction;
+                        if (m.IceProcessingProgressSeconds >= m.IceProcessingCycleSeconds)
+                        {
+                            m.IceProcessingProgressSeconds -= m.IceProcessingCycleSeconds;
+                            m.WaterRationsProduced++;
+                            m.IsIceProcessingInProgress = false;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private void PostProcessorInputDeliveryJobs()
+    {
+        foreach (var machine in Machines.Where(machine => machine.IsOnline &&
+                     machine.Type is MachineType.ComponentFabricator or MachineType.IceProcessor))
+        {
+            ItemType inputType = machine.Type == MachineType.ComponentFabricator
+                ? ItemType.SteelPlate
+                : ItemType.IceOre;
+            int targetStock = 2;
+            int onSite = JobManager.WorldItems.Count(item =>
+                item.Position == machine.Position && item.Type == inputType && item.IsAvailable);
+            int inTransit = JobManager.ActiveJobs.Count(job => job.Type == JobType.DeliverItem &&
+                job.TargetCoord == machine.Position && job.DesiredItemType == inputType);
+            int alreadyAvailable = onSite + inTransit;
+            int needed = Math.Max(0, targetStock - alreadyAvailable);
+
+            for (int i = 0; i < needed; i++)
+            {
+                var item = JobManager.WorldItems
+                    .Where(candidate => candidate.Type == inputType && candidate.IsAvailable &&
+                        !JobManager.ActiveJobs.Any(job => job.TargetItem?.Id == candidate.Id))
+                    .OrderBy(candidate => Math.Abs(candidate.Position.X - machine.Position.X) +
+                                          Math.Abs(candidate.Position.Y - machine.Position.Y))
+                    .FirstOrDefault();
+                if (item == null) break;
+                JobManager.PostJob(Job.CreateDeliverItem(machine.Position, item));
+            }
+
+            if (machine.Type != MachineType.ComponentFabricator) continue;
+
+            int ironOnSite = JobManager.WorldItems.Count(item =>
+                item.Position == machine.Position && item.Type == ItemType.IronOre && item.IsAvailable);
+            int ironInTransit = JobManager.ActiveJobs.Count(job => job.Type == JobType.DeliverItem &&
+                job.TargetCoord == machine.Position && job.DesiredItemType == ItemType.IronOre);
+            if (ironOnSite + ironInTransit >= 1) continue;
+
+            var iron = JobManager.WorldItems
+                .Where(item => item.Type == ItemType.IronOre && item.IsAvailable &&
+                    !JobManager.ActiveJobs.Any(job => job.TargetItem?.Id == item.Id))
+                .OrderBy(item => Math.Abs(item.Position.X - machine.Position.X) +
+                                 Math.Abs(item.Position.Y - machine.Position.Y))
+                .FirstOrDefault();
+            if (iron != null)
+                JobManager.PostJob(Job.CreateDeliverItem(machine.Position, iron));
         }
     }
 

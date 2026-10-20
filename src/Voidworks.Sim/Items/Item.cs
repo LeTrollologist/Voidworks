@@ -34,6 +34,7 @@ public sealed class Item
             ItemType.WaterRation => "Water Pouch",
             ItemType.FoodRation => "Nutrient Paste Ration",
             ItemType.FuelCanister => "Propellant Canister",
+            ItemType.MachineComponent => "Machine Component",
             _ => type.ToString()
         };
 
@@ -48,6 +49,7 @@ public sealed class Item
             ItemType.WaterRation => 1.0,
             ItemType.FoodRation => 0.5,
             ItemType.FuelCanister => 20.0,
+            ItemType.MachineComponent => 4.0,
             _ => 1.0
         };
 

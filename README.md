@@ -22,7 +22,11 @@ The goal is a simulation where machinery, resources, atmosphere, and people depe
 - Asteroid targets containing iron ore and ice ore.
 - Mining laser that acquires targets, extracts resources, and depletes asteroids.
 - Smelter refinery that converts raw iron ore into steel plates.
-- Material production intended to support repairs, construction, and long-term ship operations.
+- Component fabricator that turns two steel plates and one iron ore into a machine component.
+- Ice processor that turns mined ice into drinkable water rations for crew.
+- Crew delivery jobs move processor inputs to the machines that need them.
+- Construction orders let crew build hull panels, floors, bulkhead doors, and machinery from steel plates and machine components. Construction requires a welding torch; machines must be installed on an unused floor tile.
+- Buildable machinery includes component fabricators, ice processors, mining lasers, smelters, batteries, reactors, and main engines. Power cables and fluid pipes still need to be laid separately.
 
 ### Plumbing and thermal management
 
@@ -47,7 +51,7 @@ The goal is a simulation where machinery, resources, atmosphere, and people depe
 - Persistent personality traits (courage, discipline, self-preservation, determination, and sociability) and changing psychological values (motivation, fear, stress, anger, and morale). They influence movement and work rates, personal-need priorities, hazard tolerance, and willingness to assist. Fatigue remains a separate physiological need, and psychological factors do not bypass physical or equipment constraints.
 - Crew assistance requests after repeated failures involving missing resources, blocked routes, or hazards beyond the requester’s tolerance. Eligible helpers can deliver required equipment, open a locked door, or take over the source task and retry it with their own route and equipment.
 - Assistance requests and crew psychology included in simulation save data, with current assistance status visible in the crew inspector.
-- Simulation saves use versioned JSON and validate world structure before loading. They preserve crew retry, retreat, diagnostic, and scenario progress state; file saves are written and flushed to a temporary file before replacing the existing save.
+- Simulation saves use versioned JSON and validate world structure and references before loading. They preserve atmosphere and utility settings, machine production progress, crew retry, retreat and diagnostic state, active jobs and carried items, and scenario progress. File saves are written and flushed to a temporary file before replacing the existing save.
 
 ### Engineering viewport
 
@@ -127,7 +131,21 @@ Run the crew hazard response scenario without opening a window:
 dotnet run --project src/Voidworks.Game/Voidworks.Game.csproj -- --headless --scenario crew-hazard-response
 ```
 
-Headless scenarios advance with a fixed 0.1-second simulation step. Re-run the same scenario id from the standard ship setup to reproduce its starting conditions.
+The available scenario ids are `derelict-crisis`, `asteroid-expedition`, `hull-breach`, `crew-assistance`, and `crew-hazard-response`. A headless scenario without a tick limit runs until it completes, fails, or reaches its time limit. Each command above accepts the same argument form; `dotnet run` requires the `--` separator before application arguments.
+
+Advance a scenario by an exact number of 0.1-second simulation ticks and save it:
+
+```powershell
+dotnet run --project src/Voidworks.Game/Voidworks.Game.csproj -- --headless --scenario asteroid-expedition --ticks 600 --save asteroid-run.voidworks.json
+```
+
+Resume that saved world for another 600 ticks and save the result:
+
+```powershell
+dotnet run --project src/Voidworks.Game/Voidworks.Game.csproj -- --headless --load asteroid-run.voidworks.json --ticks 600 --save asteroid-run-after-120-seconds.voidworks.json
+```
+
+`--ticks` advances the simulation by exactly that many fixed steps (600 ticks = 60 simulation seconds). `--load` restores the saved world and scenario progress; `--save` writes the resulting state. Scenario setup is fixed for a given scenario id and application revision, so repeating the same headless scenario and tick count gives reproducible simulation inputs and outcomes. The project does not currently promise bit-for-bit determinism across different runtimes or platforms.
 
 Run the automated tests:
 
@@ -144,9 +162,12 @@ Asteroids
    |
    v
 Mining Laser ---> Ore Collection ---> Smelter ---> Steel Plates
-                                                |
-                                                v
-                                        Repairs / Construction
+       |                                        |           |
+       v                                        v           v
+ Ice Processor ---> Water Rations       Component Fabricator
+                                                   |
+                                                   v
+                                      Machines / Construction
 
 Reactor ---> Electrical Distribution ---> Ship Machinery
    |
@@ -165,7 +186,7 @@ These loops create dependencies rather than isolated features. A broken coolant 
 
 ## Testing
 
-The automated test suite covers simulation systems including atmosphere exchange, hull breaches, crew survival and psychology, route diagnostics, autonomous breach repair, the end-to-end Crew Assistance scenario, assistance requests and responses, and save/load behavior.
+The automated test suite covers simulation systems including atmosphere exchange, hull breaches, crew survival and psychology, route diagnostics, autonomous breach repair, the end-to-end Crew Assistance scenario, assistance requests and responses, and save/load behavior. New construction and processor progression is an initial playable slice and is not yet listed as covered by automated tests.
 
 Run the test suite locally:
 
@@ -195,9 +216,11 @@ The roadmap is iterative and may change as systems are validated.
 - [x] Expand and validate electrical grid behavior, including load distribution and brownouts
 - [x] Add more cross-system failure and recovery tests
 - [x] Improve multi-crew coordination and work scheduling
-- [ ] Add robust save/load and reproducible simulation scenarios
-- [ ] Expand construction, manufacturing, mining, and ship progression
-- [ ] Evaluate multiplayer after the simulation model is mature
+- [x] Add versioned save/load and fixed-tick scenario replay controls
+- [x] Add an initial crew construction and manufacturing progression loop
+- [x] Evaluate multiplayer readiness after reviewing simulation state and update ownership
+- [ ] Continue expanding construction, manufacturing, mining, and ship progression
+- [ ] Mature simulation command boundaries and replay guarantees before implementing multiplayer
 
 ## Contributing
 

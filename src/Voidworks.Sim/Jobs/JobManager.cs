@@ -141,7 +141,7 @@ public sealed class JobManager
         GridCoord target = job.Type switch
         {
             JobType.RepairBreach => job.TargetCoord,
-            JobType.FetchItem or JobType.EatFood or JobType.DrinkWater or JobType.RefineOre
+            JobType.FetchItem or JobType.EatFood or JobType.DrinkWater or JobType.RefineOre or JobType.DeliverItem
                 when job.TargetItem != null && !job.TargetItem.IsCarried => job.TargetItem.Position,
             _ => job.TargetCoord
         };
@@ -149,7 +149,7 @@ public sealed class JobManager
         if (grid == null)
             return Math.Abs(target.X - crew.Position.X) + Math.Abs(target.Y - crew.Position.Y);
 
-        bool targetIsNotWalkable = job.Type == JobType.RepairBreach ||
+        bool targetIsNotWalkable = job.Type is JobType.RepairBreach or JobType.Construct ||
             job.Type == JobType.AssistCrew && job.AssistanceReason == CrewDiagnosticReason.BlockedByLockedDoor;
         var route = targetIsNotWalkable
             ? AStarPathfinder.FindPathToAdjacentWithDiagnostics(grid, crew.Position, target, crew)
