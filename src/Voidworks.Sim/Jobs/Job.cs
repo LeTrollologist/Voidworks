@@ -139,6 +139,29 @@ public sealed class Job
     public bool IsConstructionOrder => Type == JobType.Construct &&
         (ConstructTileType.HasValue ^ ConstructMachineType.HasValue);
 
+    public static Job CreateDeconstructTile(GridCoord target, double workSeconds = 4.0)
+    {
+        if (workSeconds < 0.0 || !double.IsFinite(workSeconds))
+            throw new ArgumentOutOfRangeException(nameof(workSeconds));
+
+        return new Job(JobType.Deconstruct, target, priority: 25, workSeconds,
+            $"Deconstruct tile at {target}");
+    }
+
+    public static Job CreateDismantleMachine(GridCoord target, MachineType machineType, double workSeconds = 8.0)
+    {
+        if (workSeconds < 0.0 || !double.IsFinite(workSeconds))
+            throw new ArgumentOutOfRangeException(nameof(workSeconds));
+
+        return new Job(JobType.Deconstruct, target, priority: 25, workSeconds,
+            $"Dismantle {machineType} at {target}")
+        {
+            ConstructMachineType = machineType
+        };
+    }
+
+    public bool IsDeconstructionOrder => Type == JobType.Deconstruct;
+
     public static Job CreateAssistCrew(
         CrewMember requester,
         Job? sourceTask,

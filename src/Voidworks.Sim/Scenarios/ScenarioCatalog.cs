@@ -418,6 +418,110 @@ public static class ScenarioCatalog
         return scenario;
     }
 
+    public static Scenario CreateIndustrialProgression()
+    {
+        var scenario = new Scenario(
+            "industrial-progression",
+            "Industrial Ship Expansion",
+            "Expand your vessel from a stripped survival hull into an advanced, self-sufficient exploration platform. Mine asteroid deposits, smelt steel plates, synthesize machine components, expand the hull structure, install new operational machinery, and fuel the propulsion drive.",
+            timeLimitSeconds: 300.0);
+
+        scenario.SetupAction = sim =>
+        {
+            var asteroids = sim.Grid.AllTiles().Where(t => t.Type == TileType.Asteroid).ToList();
+            if (asteroids.Count == 0 && sim.Grid.Width >= 10 && sim.Grid.Height >= 10)
+            {
+                sim.Grid[sim.Grid.Width - 2, 2].Type = TileType.Asteroid;
+                sim.Grid[sim.Grid.Width - 2, 2].AsteroidIronOre = 6;
+                sim.Grid[sim.Grid.Width - 2, 2].AsteroidIceOre = 4;
+            }
+            else
+            {
+                foreach (var asteroid in asteroids)
+                {
+                    if (asteroid.AsteroidIronOre + asteroid.AsteroidIceOre == 0)
+                    {
+                        asteroid.AsteroidIronOre = 6;
+                        asteroid.AsteroidIceOre = 4;
+                    }
+                }
+            }
+
+            foreach (var machine in sim.Machines)
+            {
+                machine.IsOnline = true;
+                if (machine.Type == MachineType.MiningLaser)
+                    machine.MiningCycleSeconds = 2.0;
+                if (machine.Type == MachineType.SmelterRefinery)
+                    machine.SmeltCycleSeconds = 2.0;
+                if (machine.Type == MachineType.ComponentFabricator)
+                    machine.ComponentFabricationCycleSeconds = 4.0;
+                if (machine.Type == MachineType.IceProcessor)
+                    machine.IceProcessingCycleSeconds = 3.0;
+            }
+        };
+
+        scenario.Objectives.Add(new ScenarioObjective(
+            "mine-resources",
+            "Extract 3 Ore Chunks",
+            "Mine raw iron and ice ore chunks from the asteroid field using the mining laser.",
+            sim =>
+            {
+                var laser = sim.Machines.FirstOrDefault(m => m.Type == MachineType.MiningLaser);
+                return laser != null && laser.TotalOreExtracted >= 3;
+            }));
+
+        scenario.Objectives.Add(new ScenarioObjective(
+            "smelt-steel",
+            "Refine Steel Plates",
+            "Refine iron ore through the smelter to produce finished structural steel plates.",
+            sim =>
+            {
+                var smelter = sim.Machines.FirstOrDefault(m => m.Type == MachineType.SmelterRefinery);
+                return smelter != null && (smelter.SteelPlatesProduced > 0 ||
+                       sim.JobManager.WorldItems.Any(i => i.Type == ItemType.SteelPlate) ||
+                       sim.Crew.Any(c => c.Crew.HasItem(ItemType.SteelPlate)));
+            }));
+
+        scenario.Objectives.Add(new ScenarioObjective(
+            "fabricate-components",
+            "Fabricate Machine Components",
+            "Combine steel plates and iron ore in the component fabricator to produce advanced machine parts.",
+            sim =>
+            {
+                var fab = sim.Machines.FirstOrDefault(m => m.Type == MachineType.ComponentFabricator);
+                return fab != null && (fab.ComponentsProduced > 0 ||
+                       sim.JobManager.WorldItems.Any(i => i.Type == ItemType.MachineComponent) ||
+                       sim.Crew.Any(c => c.Crew.HasItem(ItemType.MachineComponent)));
+            }));
+
+        scenario.Objectives.Add(new ScenarioObjective(
+            "expand-ship-hull",
+            "Expand Ship Construction",
+            "Construct new ship tiles (hull, floor, wall, or door) or install new machinery.",
+            sim =>
+            {
+                return sim.JobManager.CompletedJobsHistory.Any(j => j.Type == JobType.Construct) ||
+                       sim.Machines.Count > 4;
+            }));
+
+        scenario.Objectives.Add(new ScenarioObjective(
+            "fuel-replenishment",
+            "Synthesize & Store Propellant",
+            "Produce propellant canisters from ice ore and replenish the ship's fuel tank.",
+            sim =>
+            {
+                var tank = sim.Machines.FirstOrDefault(m => m.Type == MachineType.FuelTank);
+                var processor = sim.Machines.FirstOrDefault(m => m.Type == MachineType.IceProcessor);
+                return (processor != null && processor.FuelCanistersProduced > 0) ||
+                       sim.JobManager.WorldItems.Any(i => i.Type == ItemType.FuelCanister) ||
+                       sim.Crew.Any(c => c.Crew.HasItem(ItemType.FuelCanister)) ||
+                       (tank != null && tank.FuelStoredKg > 0.0);
+            }));
+
+        return scenario;
+    }
+
     public static Scenario? CreateById(string id) => id.ToLowerInvariant() switch
     {
         "derelict-crisis" => CreateTheDerelictCrisis(),
@@ -425,6 +529,7 @@ public static class ScenarioCatalog
         "hull-breach" => CreateHullBreachEmergency(),
         "crew-assistance" => CreateCrewAssistance(),
         "crew-hazard-response" => CreateCrewHazardResponse(),
+        "industrial-progression" => CreateIndustrialProgression(),
         _ => null
     };
 }

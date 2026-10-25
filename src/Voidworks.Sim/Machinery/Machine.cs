@@ -67,6 +67,7 @@ public sealed class Machine
     public GridCoord? TargetAsteroidCoord { get; set; }
     public double MiningProgressSeconds { get; set; } = 0.0;
     public double MiningCycleSeconds { get; set; } = 3.0;
+    public int MiningRange { get; set; } = 6;
     public int TotalOreExtracted { get; set; } = 0;
 
     // Component fabricator output
@@ -75,6 +76,8 @@ public sealed class Machine
     public double ComponentFabricationCycleSeconds { get; set; } = 8.0;
     public bool IsComponentFabricationInProgress { get; set; }
     public int WaterRationsProduced { get; set; }
+    public int FuelCanistersProduced { get; set; }
+    public bool ProduceFuelCanisters { get; set; }
     public double IceProcessingProgressSeconds { get; set; }
     public double IceProcessingCycleSeconds { get; set; } = 5.0;
     public bool IsIceProcessingInProgress { get; set; }

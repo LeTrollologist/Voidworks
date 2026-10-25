@@ -399,6 +399,21 @@ public sealed class CrewAI
             }
         }
 
+        if (emergencyJob?.Type == JobType.Deconstruct)
+        {
+            if (!PlanDeconstructionPrerequisites(jobManager, emergencyJob))
+            {
+                jobManager.ReleaseJob(emergencyJob);
+                emergencyPlanFailed = true;
+                CurrentActivity = "Waiting for welding torch to deconstruct";
+            }
+            else if (_subJobs.Count > 0)
+            {
+                CurrentJob = _subJobs.Dequeue();
+                return;
+            }
+        }
+
         // Routine tasks
         if (emergencyJob != null && !emergencyPlanFailed)
         {
@@ -563,6 +578,36 @@ public sealed class CrewAI
         }
     }
 
+    private bool PlanDeconstructionPrerequisites(JobManager jobManager, Job deconstructJob)
+    {
+        _subJobs.Clear();
+        if (Crew.HasItem(ItemType.WeldingTorch))
+        {
+            _subJobs.Enqueue(deconstructJob);
+            return true;
+        }
+
+        Item? torch = jobManager.FindAvailableItem(ItemType.WeldingTorch, Crew.Position, Crew.Id);
+        if (torch == null)
+        {
+            RecordTaskFailure(new CrewDecisionDiagnostic(
+                CrewDiagnosticReason.ResourceUnavailable,
+                deconstructJob.TargetCoord,
+                Crew.Position,
+                null,
+                "A welding torch is required for deconstruction."),
+                deconstructJob,
+                jobManager,
+                [ItemType.WeldingTorch]);
+            return false;
+        }
+
+        torch.ReservedByCrewId = Crew.Id;
+        _subJobs.Enqueue(Job.CreateFetchItem(torch, priority: 35));
+        _subJobs.Enqueue(deconstructJob);
+        return true;
+    }
+
     private void ExecuteCurrentJob(
         ShipGrid grid,
         JobManager jobManager,
@@ -594,6 +639,10 @@ public sealed class CrewAI
 
             case JobType.Construct:
                 ExecuteConstruction(grid, jobManager, dt, machines);
+                break;
+
+            case JobType.Deconstruct:
+                ExecuteDeconstruction(grid, jobManager, dt, machines);
                 break;
 
             case JobType.EatFood:
@@ -920,6 +969,150 @@ public sealed class CrewAI
 
     private static bool HasAdjacentFloor(ShipGrid grid, GridCoord target)
         => target.Cardinals().Any(coord => grid.IsInBounds(coord) && grid[coord].Type == TileType.Floor);
+
+    private void ExecuteDeconstruction(
+        ShipGrid grid, JobManager jobManager, double dt, List<Machine>? machines)
+    {
+        var job = CurrentJob!;
+        if (!job.IsDeconstructionOrder)
+        {
+            jobManager.CancelJob(job);
+            CurrentJob = null;
+            CurrentActivity = "Invalid deconstruction order cancelled";
+            return;
+        }
+
+        if (!grid.IsInBounds(job.TargetCoord))
+        {
+            jobManager.CancelJob(job);
+            CurrentJob = null;
+            CurrentActivity = "Deconstruction target out of bounds; order cancelled";
+            return;
+        }
+
+        bool hasTargetMachine = machines != null && job.ConstructMachineType.HasValue &&
+            machines.Any(m => m.Position == job.TargetCoord && m.Type == job.ConstructMachineType.Value);
+        bool hasTargetTile = !job.ConstructMachineType.HasValue &&
+            grid[job.TargetCoord].Type is TileType.InteriorWall or TileType.Door or TileType.HullWall or TileType.Floor;
+
+        if (!hasTargetMachine && !hasTargetTile)
+        {
+            jobManager.CancelJob(job);
+            CurrentJob = null;
+            _currentPath = null;
+            CurrentActivity = "Deconstruction target missing; order cancelled";
+            return;
+        }
+
+        int distance = Math.Abs(Crew.Position.X - job.TargetCoord.X) +
+            Math.Abs(Crew.Position.Y - job.TargetCoord.Y);
+        if (distance > 1)
+        {
+            var route = AStarPathfinder.FindPathToAdjacentWithDiagnostics(grid, Crew.Position, job.TargetCoord, Crew);
+            if (route.Path == null || route.Path.Count <= 1)
+            {
+                RecordNavigationFailure(route, job.TargetCoord, jobManager);
+                jobManager.ReleaseJob(job);
+                CurrentJob = null;
+                _currentPath = null;
+                return;
+            }
+
+            ClearFailureAfterSuccess();
+            route.Path.RemoveAt(0);
+            _currentPath = route.Path;
+            CurrentActivity = $"Moving to deconstruction site at {job.TargetCoord}";
+            return;
+        }
+
+        if (!Crew.HasItem(ItemType.WeldingTorch))
+        {
+            jobManager.ReleaseJob(job);
+            CurrentJob = null;
+            _subJobs.Clear();
+            CurrentActivity = "Welding torch missing; deconstruction returned to queue";
+            return;
+        }
+
+        job.WorkRemainingSeconds = Math.Max(
+            0.0, job.WorkRemainingSeconds - dt * Crew.Psychology.WorkRateMultiplier);
+        if (job.WorkRemainingSeconds > 0.0)
+        {
+            CurrentActivity = $"Deconstructing at {job.TargetCoord} ({job.WorkRemainingSeconds:F1}s)";
+            return;
+        }
+
+        if (hasTargetMachine)
+        {
+            var machine = machines!.First(m => m.Position == job.TargetCoord && m.Type == job.ConstructMachineType!.Value);
+            machines!.Remove(machine);
+
+            int plates = machine.Type switch
+            {
+                MachineType.Reactor => 5,
+                MachineType.MainEngine => 4,
+                MachineType.ComponentFabricator => 4,
+                MachineType.MiningLaser => 3,
+                MachineType.SmelterRefinery => 3,
+                MachineType.IceProcessor => 2,
+                MachineType.HydroponicsBay => 3,
+                MachineType.OxygenGenerator => 3,
+                MachineType.FuelTank => 3,
+                MachineType.Radiator => 2,
+                MachineType.Battery => 2,
+                _ => 1
+            };
+            int components = machine.Type switch
+            {
+                MachineType.Reactor => 1,
+                MachineType.MainEngine => 1,
+                MachineType.MiningLaser => 1,
+                MachineType.IceProcessor => 1,
+                MachineType.OxygenGenerator => 1,
+                MachineType.CarbonScrubber => 1,
+                MachineType.HydroponicsBay => 1,
+                MachineType.FuelTank => 1,
+                _ => 0
+            };
+
+            for (int i = 0; i < plates; i++)
+                jobManager.AddItem(new Item(ItemType.SteelPlate, job.TargetCoord));
+            for (int i = 0; i < components; i++)
+                jobManager.AddItem(new Item(ItemType.MachineComponent, job.TargetCoord));
+        }
+        else
+        {
+            var tile = grid[job.TargetCoord];
+            if (tile.Type == TileType.Door)
+            {
+                tile.Type = TileType.Floor;
+                tile.DoorState = DoorState.Closed;
+                jobManager.AddItem(new Item(ItemType.SteelPlate, job.TargetCoord));
+                jobManager.AddItem(new Item(ItemType.SteelPlate, job.TargetCoord));
+            }
+            else if (tile.Type == TileType.InteriorWall)
+            {
+                tile.Type = TileType.Floor;
+                jobManager.AddItem(new Item(ItemType.SteelPlate, job.TargetCoord));
+            }
+            else if (tile.Type == TileType.HullWall)
+            {
+                tile.Type = TileType.Space;
+                tile.IsBreached = false;
+                jobManager.AddItem(new Item(ItemType.SteelPlate, job.TargetCoord));
+            }
+            else if (tile.Type == TileType.Floor)
+            {
+                tile.Type = TileType.Space;
+                jobManager.AddItem(new Item(ItemType.SteelPlate, job.TargetCoord));
+            }
+        }
+
+        jobManager.CompleteJob(job);
+        CurrentJob = null;
+        _currentPath = null;
+        CurrentActivity = $"Deconstruction complete at {job.TargetCoord}";
+    }
 
     private void ExecuteEquipSuit()
     {

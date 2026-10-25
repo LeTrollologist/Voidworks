@@ -14,5 +14,6 @@ public enum JobType
     MineAsteroid,
     AssistCrew,
     DeliverItem,
-    Construct
+    Construct,
+    Deconstruct
 }

@@ -107,7 +107,7 @@ public sealed class SimulationState
             {
                 if (!m.TargetAsteroidCoord.HasValue || !Grid.IsInBounds(m.TargetAsteroidCoord.Value) || Grid[m.TargetAsteroidCoord.Value].Type != TileType.Asteroid)
                 {
-                    m.TargetAsteroidCoord = FindNearestAsteroid(m.Position, maxRange: 6);
+                    m.TargetAsteroidCoord = FindNearestAsteroid(m.Position, maxRange: m.MiningRange);
                 }
 
                 if (m.TargetAsteroidCoord.HasValue)
@@ -160,13 +160,37 @@ public sealed class SimulationState
                 }
             }
 
-            // 3. Hydroponics Bay: Ejects finished food rations
+            // 3. Hydroponics Bay: Ejects finished food rations and accepts water rations
             else if (m.Type == MachineType.HydroponicsBay)
             {
+                if (m.WaterStoredLiters <= 10.0)
+                {
+                    var waterOnTile = JobManager.WorldItems.FirstOrDefault(i =>
+                        i.Position == m.Position && i.Type == ItemType.WaterRation && i.IsAvailable);
+                    if (waterOnTile != null)
+                    {
+                        JobManager.RemoveItem(waterOnTile);
+                        m.WaterStoredLiters += 5.0;
+                    }
+                }
+
                 if (m.FoodRationsProduced > 0)
                 {
                     m.FoodRationsProduced--;
                     JobManager.AddItem(new Item(ItemType.FoodRation, m.Position));
+                }
+            }
+            else if (m.Type == MachineType.FuelTank)
+            {
+                if (m.FuelStoredKg < m.FuelCapacityKg)
+                {
+                    var fuelOnTile = JobManager.WorldItems.FirstOrDefault(i =>
+                        i.Position == m.Position && i.Type == ItemType.FuelCanister && i.IsAvailable);
+                    if (fuelOnTile != null)
+                    {
+                        JobManager.RemoveItem(fuelOnTile);
+                        m.FuelStoredKg = Math.Min(m.FuelCapacityKg, m.FuelStoredKg + fuelOnTile.WeightKg);
+                    }
                 }
             }
             else if (m.Type == MachineType.ComponentFabricator)
@@ -205,32 +229,68 @@ public sealed class SimulationState
             }
             else if (m.Type == MachineType.IceProcessor)
             {
-                if (m.WaterRationsProduced > 0)
+                if (m.ProduceFuelCanisters)
                 {
-                    m.WaterRationsProduced--;
-                    JobManager.AddItem(new Item(ItemType.WaterRation, m.Position));
+                    if (m.FuelCanistersProduced > 0)
+                    {
+                        m.FuelCanistersProduced--;
+                        JobManager.AddItem(new Item(ItemType.FuelCanister, m.Position));
+                    }
+                    else
+                    {
+                        if (!m.IsIceProcessingInProgress)
+                        {
+                            var iceChunks = JobManager.WorldItems
+                                .Where(item => item.Position == m.Position && item.Type == ItemType.IceOre && item.IsAvailable)
+                                .Take(2).ToList();
+                            if (iceChunks.Count == 2)
+                            {
+                                foreach (var chunk in iceChunks) JobManager.RemoveItem(chunk);
+                                m.IsIceProcessingInProgress = true;
+                            }
+                        }
+
+                        if (m.IsIceProcessingInProgress)
+                        {
+                            m.IceProcessingProgressSeconds += dt * m.PowerFraction;
+                            if (m.IceProcessingProgressSeconds >= m.IceProcessingCycleSeconds)
+                            {
+                                m.IceProcessingProgressSeconds -= m.IceProcessingCycleSeconds;
+                                m.FuelCanistersProduced++;
+                                m.IsIceProcessingInProgress = false;
+                            }
+                        }
+                    }
                 }
                 else
                 {
-                    if (!m.IsIceProcessingInProgress)
+                    if (m.WaterRationsProduced > 0)
                     {
-                        var ice = JobManager.WorldItems.FirstOrDefault(item =>
-                            item.Position == m.Position && item.Type == ItemType.IceOre && item.IsAvailable);
-                        if (ice != null)
-                        {
-                            JobManager.RemoveItem(ice);
-                            m.IsIceProcessingInProgress = true;
-                        }
+                        m.WaterRationsProduced--;
+                        JobManager.AddItem(new Item(ItemType.WaterRation, m.Position));
                     }
-
-                    if (m.IsIceProcessingInProgress)
+                    else
                     {
-                        m.IceProcessingProgressSeconds += dt * m.PowerFraction;
-                        if (m.IceProcessingProgressSeconds >= m.IceProcessingCycleSeconds)
+                        if (!m.IsIceProcessingInProgress)
                         {
-                            m.IceProcessingProgressSeconds -= m.IceProcessingCycleSeconds;
-                            m.WaterRationsProduced++;
-                            m.IsIceProcessingInProgress = false;
+                            var ice = JobManager.WorldItems.FirstOrDefault(item =>
+                                item.Position == m.Position && item.Type == ItemType.IceOre && item.IsAvailable);
+                            if (ice != null)
+                            {
+                                JobManager.RemoveItem(ice);
+                                m.IsIceProcessingInProgress = true;
+                            }
+                        }
+
+                        if (m.IsIceProcessingInProgress)
+                        {
+                            m.IceProcessingProgressSeconds += dt * m.PowerFraction;
+                            if (m.IceProcessingProgressSeconds >= m.IceProcessingCycleSeconds)
+                            {
+                                m.IceProcessingProgressSeconds -= m.IceProcessingCycleSeconds;
+                                m.WaterRationsProduced++;
+                                m.IsIceProcessingInProgress = false;
+                            }
                         }
                     }
                 }
@@ -282,6 +342,44 @@ public sealed class SimulationState
                 .FirstOrDefault();
             if (iron != null)
                 JobManager.PostJob(Job.CreateDeliverItem(machine.Position, iron));
+        }
+
+        foreach (var bay in Machines.Where(m => m.IsOnline && m.Type == MachineType.HydroponicsBay && m.WaterStoredLiters <= 5.0))
+        {
+            int onSite = JobManager.WorldItems.Count(item =>
+                item.Position == bay.Position && item.Type == ItemType.WaterRation && item.IsAvailable);
+            int inTransit = JobManager.ActiveJobs.Count(job => job.Type == JobType.DeliverItem &&
+                job.TargetCoord == bay.Position && job.DesiredItemType == ItemType.WaterRation);
+            if (onSite + inTransit < 1)
+            {
+                var water = JobManager.WorldItems
+                    .Where(item => item.Type == ItemType.WaterRation && item.IsAvailable &&
+                        !JobManager.ActiveJobs.Any(job => job.TargetItem?.Id == item.Id))
+                    .OrderBy(item => Math.Abs(item.Position.X - bay.Position.X) +
+                                     Math.Abs(item.Position.Y - bay.Position.Y))
+                    .FirstOrDefault();
+                if (water != null)
+                    JobManager.PostJob(Job.CreateDeliverItem(bay.Position, water));
+            }
+        }
+
+        foreach (var tank in Machines.Where(m => m.IsOnline && m.Type == MachineType.FuelTank && m.FuelStoredKg < m.FuelCapacityKg))
+        {
+            int onSite = JobManager.WorldItems.Count(item =>
+                item.Position == tank.Position && item.Type == ItemType.FuelCanister && item.IsAvailable);
+            int inTransit = JobManager.ActiveJobs.Count(job => job.Type == JobType.DeliverItem &&
+                job.TargetCoord == tank.Position && job.DesiredItemType == ItemType.FuelCanister);
+            if (onSite + inTransit < 1)
+            {
+                var fuel = JobManager.WorldItems
+                    .Where(item => item.Type == ItemType.FuelCanister && item.IsAvailable &&
+                        !JobManager.ActiveJobs.Any(job => job.TargetItem?.Id == item.Id))
+                    .OrderBy(item => Math.Abs(item.Position.X - tank.Position.X) +
+                                     Math.Abs(item.Position.Y - tank.Position.Y))
+                    .FirstOrDefault();
+                if (fuel != null)
+                    JobManager.PostJob(Job.CreateDeliverItem(tank.Position, fuel));
+            }
         }
     }
 

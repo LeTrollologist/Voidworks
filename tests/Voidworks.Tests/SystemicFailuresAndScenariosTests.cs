@@ -709,7 +709,7 @@ public class SystemicFailuresAndScenariosTests
         crew.Physiology.Health = 92.5;
         crew.Physiology.Hunger = 33.2;
         crew.Psychology.Restore(81.0, 62.0, 43.0, 77.0, 55.0, 71.0, 12.0, 24.0, 31.0, 66.0);
-        crew.Inventory.Add(new Item(ItemType.WeldingTorch, new GridCoord(4, 3)));
+        crew.PickUp(new Item(ItemType.WeldingTorch, new GridCoord(4, 3)));
 
         var jobManager = new JobManager();
         jobManager.AddItem(new Item(ItemType.SteelPlate, new GridCoord(5, 5)));

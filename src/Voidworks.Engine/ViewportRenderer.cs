@@ -262,6 +262,7 @@ public sealed class ViewportRenderer
                 ItemType.WaterRation => (0xFFE0A030, "H2O"),
                 ItemType.FoodRation => (0xFF30C070, "NUT"),
                 ItemType.FuelCanister => (0xFF2070E0, "FUL"),
+                ItemType.MachineComponent => (0xFFD0A040, "CMP"),
                 _ => (0xFFFFFFFF, "?")
             };
 

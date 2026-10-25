@@ -15,6 +15,7 @@ public sealed class JobManager
 
     public IReadOnlyList<Job> ActiveJobs => _jobs;
     public IReadOnlyList<Item> WorldItems => _worldItems;
+    public List<Job> CompletedJobsHistory { get; } = new();
     public IEnumerable<Job> AssistanceJobs => _jobs.Where(job => job.Type == JobType.AssistCrew);
 
     public void AddItem(Item item) => _worldItems.Add(item);
@@ -104,6 +105,7 @@ public sealed class JobManager
     {
         job.IsCompleted = true;
         _jobs.Remove(job);
+        CompletedJobsHistory.Add(job);
     }
 
     public Item? FindAvailableItem(ItemType type, GridCoord nearCoord, Guid? requestingCrewId = null)

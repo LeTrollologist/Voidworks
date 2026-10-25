@@ -165,6 +165,9 @@ public static class SimulationSerializer
                 ComponentFabricationCycle = m.ComponentFabricationCycleSeconds,
                 IsComponentFabricationInProgress = m.IsComponentFabricationInProgress,
                 WaterRationsProduced = m.WaterRationsProduced,
+                FuelCanistersProduced = m.FuelCanistersProduced,
+                ProduceFuelCanisters = m.ProduceFuelCanisters,
+                MiningRange = m.MiningRange,
                 IceProcessingProgress = m.IceProcessingProgressSeconds,
                 IceProcessingCycle = m.IceProcessingCycleSeconds,
                 IsIceProcessingInProgress = m.IsIceProcessingInProgress
@@ -213,8 +216,12 @@ public static class SimulationSerializer
                 Anger = c.Crew.Psychology.Anger,
                 Motivation = c.Crew.Psychology.Motivation,
                 Morale = c.Crew.Psychology.Morale,
-                Inventory = c.Crew.Inventory.Select(ToItemDto).ToList(),
-                EquippedTank = c.Crew.EquippedOxygenTank != null ? ToItemDto(c.Crew.EquippedOxygenTank) : null
+                Inventory = c.Crew.Inventory.Select(item =>
+                {
+                    item.IsCarried = true;
+                    return ToItemDto(item);
+                }).ToList(),
+                EquippedTank = c.Crew.EquippedOxygenTank != null ? ToCarriedItemDto(c.Crew.EquippedOxygenTank) : null
             }).ToList(),
             Jobs = sim.JobManager.ActiveJobs.Select(ToJobDto).ToList(),
             ScenarioId = sim.ActiveScenario?.Id,
@@ -331,6 +338,9 @@ public static class SimulationSerializer
                 ComponentFabricationCycleSeconds = mDto.ComponentFabricationCycle,
                 IsComponentFabricationInProgress = mDto.IsComponentFabricationInProgress,
                 WaterRationsProduced = mDto.WaterRationsProduced,
+                FuelCanistersProduced = mDto.FuelCanistersProduced,
+                ProduceFuelCanisters = mDto.ProduceFuelCanisters,
+                MiningRange = mDto.MiningRange > 0 ? mDto.MiningRange : 6,
                 IceProcessingProgressSeconds = mDto.IceProcessingProgress,
                 IceProcessingCycleSeconds = mDto.IceProcessingCycle,
                 IsIceProcessingInProgress = mDto.IsIceProcessingInProgress
@@ -782,6 +792,11 @@ public static class SimulationSerializer
                 job.ConstructMachineType.HasValue && !Enum.IsDefined(typeof(MachineType), job.ConstructMachineType.Value))
                 throw new InvalidDataException($"Job '{job.Name}' contains an invalid construction target.");
         }
+        else if (job.Type == JobType.Deconstruct)
+        {
+            if (job.ConstructMachineType.HasValue && !Enum.IsDefined(typeof(MachineType), job.ConstructMachineType.Value))
+                throw new InvalidDataException($"Job '{job.Name}' contains an invalid deconstruction target.");
+        }
         else if (job.ConstructTileType.HasValue || job.ConstructMachineType.HasValue ||
                  job.RequiredSteelPlates > 0 || job.RequiredMachineComponents > 0)
         {
@@ -812,6 +827,12 @@ public static class SimulationSerializer
     {
         if (!double.IsFinite(value) || value < 0.0)
             throw new InvalidDataException($"Save data contains an invalid {description} value.");
+    }
+
+    private static ItemSaveDto ToCarriedItemDto(Item item)
+    {
+        item.IsCarried = true;
+        return ToItemDto(item);
     }
 
     private static ItemSaveDto ToItemDto(Item item) => new()
@@ -1032,6 +1053,9 @@ public sealed class MachineSaveDto
     public double ComponentFabricationCycle { get; set; } = 8.0;
     public bool IsComponentFabricationInProgress { get; set; }
     public int WaterRationsProduced { get; set; }
+    public int FuelCanistersProduced { get; set; }
+    public bool ProduceFuelCanisters { get; set; }
+    public int MiningRange { get; set; } = 6;
     public double IceProcessingProgress { get; set; }
     public double IceProcessingCycle { get; set; } = 5.0;
     public bool IsIceProcessingInProgress { get; set; }

@@ -20,13 +20,14 @@ The goal is a simulation where machinery, resources, atmosphere, and people depe
 ### Mining and industrial production
 
 - Asteroid targets containing iron ore and ice ore.
-- Mining laser that acquires targets, extracts resources, and depletes asteroids.
+- Mining laser that acquires targets, extracts resources, depletes asteroids, and supports target cycling within its operational range.
 - Smelter refinery that converts raw iron ore into steel plates.
 - Component fabricator that turns two steel plates and one iron ore into a machine component.
-- Ice processor that turns mined ice into drinkable water rations for crew.
-- Crew delivery jobs move processor inputs to the machines that need them.
-- Construction orders let crew build hull panels, floors, bulkhead doors, and machinery from steel plates and machine components. Construction requires a welding torch; machines must be installed on an unused floor tile.
-- Buildable machinery includes component fabricators, ice processors, mining lasers, smelters, batteries, reactors, and main engines. Power cables and fluid pipes still need to be laid separately.
+- Ice processor with dual-mode production: converts ice ore into drinkable water rations for crew and hydroponics, or synthesizes propellant canisters for propulsion.
+- Crew delivery jobs move processor inputs to the machines that need them, replenish hydroponics water reservoirs, and refuel propellant tanks.
+- Construction orders let crew build hull panels, floors, interior partition walls, bulkhead doors, and machinery from steel plates and machine components. Construction requires a welding torch; machines must be installed on an unused floor tile.
+- Deconstruction orders let crew dismantle machinery and strip walls, doors, floors, or hull panels with a welding torch to reclaim structural steel and machine components.
+- Buildable machinery includes component fabricators, ice processors, mining lasers, smelters, batteries, reactors, oxygen generators, carbon scrubbers, hydroponics bays, fuel tanks, radiators, and main engines. Power cables and fluid pipes still need to be laid separately.
 
 ### Plumbing and thermal management
 
@@ -131,7 +132,7 @@ Run the crew hazard response scenario without opening a window:
 dotnet run --project src/Voidworks.Game/Voidworks.Game.csproj -- --headless --scenario crew-hazard-response
 ```
 
-The available scenario ids are `derelict-crisis`, `asteroid-expedition`, `hull-breach`, `crew-assistance`, and `crew-hazard-response`. A headless scenario without a tick limit runs until it completes, fails, or reaches its time limit. Each command above accepts the same argument form; `dotnet run` requires the `--` separator before application arguments.
+The available scenario ids are `derelict-crisis`, `asteroid-expedition`, `hull-breach`, `crew-assistance`, `crew-hazard-response`, and `industrial-progression`. A headless scenario without a tick limit runs until it completes, fails, or reaches its time limit. Each command above accepts the same argument form; `dotnet run` requires the `--` separator before application arguments.
 
 Advance a scenario by an exact number of 0.1-second simulation ticks and save it:
 
@@ -186,7 +187,7 @@ These loops create dependencies rather than isolated features. A broken coolant 
 
 ## Testing
 
-The automated test suite covers simulation systems including atmosphere exchange, hull breaches, crew survival and psychology, route diagnostics, autonomous breach repair, the end-to-end Crew Assistance scenario, assistance requests and responses, and save/load behavior. New construction and processor progression is an initial playable slice and is not yet listed as covered by automated tests.
+The automated test suite covers simulation systems including atmosphere exchange, hull breaches, crew survival and psychology, route diagnostics, autonomous breach repair, the end-to-end scenarios, assistance requests, save/load behavior, autonomous construction and dismantling, and manufacturing and industrial progression.
 
 Run the test suite locally:
 
@@ -219,7 +220,7 @@ The roadmap is iterative and may change as systems are validated.
 - [x] Add versioned save/load and fixed-tick scenario replay controls
 - [x] Add an initial crew construction and manufacturing progression loop
 - [x] Evaluate multiplayer readiness after reviewing simulation state and update ownership
-- [ ] Continue expanding construction, manufacturing, mining, and ship progression
+- [x] Continue expanding construction, manufacturing, mining, and ship progression
 - [ ] Mature simulation command boundaries and replay guarantees before implementing multiplayer
 
 ## Contributing
