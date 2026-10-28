@@ -80,6 +80,39 @@ Rules:
   (`AssignSourceTaskToHelper`) or by a cleared blocker (`ResetJobForRetry`); both
   reset the attempt counter.
 
+## Player command layer
+
+Player actions that change simulation state go through
+`SimulationState.ExecuteCommand(ISimulationCommand)`. Commands live in
+`Voidworks.Sim` and have no rendering or windowing dependencies.
+
+| Command | Purpose |
+| --- | --- |
+| `BuildTileCommand`, `DeconstructTileCommand` | Queue structural construction or removal |
+| `InstallMachineCommand`, `DismantleMachineCommand` | Queue machinery installation or removal |
+| `ToggleUtilityCommand` | Lay/remove power cable, coolant pipe, or fuel line |
+| `SetMachineOnlineCommand`, `ResetReactorScramCommand` | Machine controls |
+| `ToggleDoorCommand` | Open/close an unlocked door |
+| `SetJobPriorityCommand`, `CancelJobCommand` | Job orders and work priority |
+| `TransferCoolantCommand` | Transfer coolant from the ship reserve |
+
+Rules:
+
+- Commands apply **between fixed ticks** (from input handling, never inside
+  `SimulationState.Step`), so the tick they affect is deterministic.
+- Every command returns `SimulationCommandResult` with `Success`, a human-readable
+  `Message`, a stable `FailureCode` when rejected, and the affected `JobId` when
+  one was created.
+- Validation rejects out-of-bounds coordinates, invalid or occupied tiles,
+  duplicate orders on one tile, missing machines, machines on non-floor tiles,
+  builds without an adjacent floor, doors on non-wall or breached tiles, locked
+  doors, SCRAMed reactors, and invalid coolant amounts.
+- Every outcome is appended to the event log as `CommandApplied` or
+  `CommandRejected`, including the failure code, so the UI and future alerting can
+  explain why an action failed.
+- Debug-only breach creation and patching still mutate tiles directly from the
+  engine; they are intentionally outside the player command surface.
+
 ## Diagnostics
 
 `SimulationState.Events` is a bounded `SimulationEventLog` (512 entries by default).
@@ -127,8 +160,8 @@ and fixed-tick remainder.
 - Cross-platform bit-for-bit determinism is not guaranteed.
 - Rendering and input are outside these tests; rendering cost has not been profiled
   separately from simulation cost.
-- Several UI actions still mutate simulation state directly; the validated command
-  layer described in the roadmap is not implemented yet.
+- Debug-only breach creation and patching bypass the command layer; all other
+  player actions are validated commands.
 - Room topology, door reachability, and utility-network invariants are not yet
   validated after world changes; only bounds and machine placement are checked.
 - Tools are ordinary inventory items; there is no separate tool-reservation table.

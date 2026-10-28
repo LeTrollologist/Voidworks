@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Voidworks.Sim.Atmosphere;
+using Voidworks.Sim.Commands;
 using Voidworks.Sim.Crew;
 using Voidworks.Sim.Diagnostics;
 using Voidworks.Sim.Items;
@@ -44,6 +45,36 @@ public sealed class SimulationState
 
     public IReadOnlyList<SimulationInvariantViolation> ValidateInvariants()
         => SimulationInvariants.Validate(this);
+
+    /// <summary>
+    /// Applies a validated player command between fixed ticks. Every outcome is
+    /// returned to the caller and appended to the event history, so rejected
+    /// actions are as observable as successful ones.
+    /// </summary>
+    public SimulationCommandResult ExecuteCommand(ISimulationCommand command)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+
+        SimulationCommandResult result;
+        try
+        {
+            result = command.Execute(this);
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+        {
+            result = SimulationCommandResult.Fail("CommandException", exception.Message);
+        }
+
+        string detail = result.Success
+            ? $"{command.Name}: {result.Message}"
+            : $"{command.Name} rejected ({result.FailureCode}): {result.Message}";
+        Events.Add(
+            SimTime,
+            result.Success ? SimulationEventKind.CommandApplied : SimulationEventKind.CommandRejected,
+            detail,
+            result.JobId);
+        return result;
+    }
 
     public const double FixedTickDt = 0.1; // 10 fixed ticks per simulation second
     private double _accumulator = 0.0;

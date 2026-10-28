@@ -12,7 +12,7 @@ Simulation update ordering, job lifecycle and retry rules, invariant checks, sav
 
 ## Recent Progress
 
-- **2026-10-27:** Baseline re-established at 96 passing tests. Jobs now have explicit lifecycle states, full reservation release, bounded retry/backoff, and a bounded event history; development invariants cover ownership, references, and placement; saves use format v3 with backward migration; all six scenarios have headless smoke and long-run coverage. The rules are documented in [`docs/simulation-contract.md`](docs/simulation-contract.md).
+- **2026-10-27:** Baseline re-established at 107 passing tests. Jobs now have explicit lifecycle states, full reservation release, bounded retry/backoff, and a bounded event history; development invariants cover ownership, references, and placement; saves use format v3 with backward migration; all six scenarios have headless smoke and long-run coverage; and player actions now flow through validated simulation commands with explicit failure codes. The rules are documented in [`docs/simulation-contract.md`](docs/simulation-contract.md).
 
 
 ## Phase 0: Establish a Reliable Baseline
@@ -53,10 +53,10 @@ Simulation update ordering, job lifecycle and retry rules, invariant checks, sav
 
 ## Phase 2: Player Command and Tooling Layer
 
-- [ ] Route player changes through validated simulation commands instead of direct UI mutation.
-- [ ] Add commands for construction, cables, pipes, machine controls, job orders, and work priorities.
-- [ ] Return explicit command results and failure reasons.
-- [ ] Keep commands independent of graphics and windowing code.
+- [x] Route player changes through validated simulation commands instead of direct UI mutation.
+- [x] Add commands for construction, cables, pipes, machine controls, job orders, and work priorities.
+- [x] Return explicit command results and failure reasons.
+- [x] Keep commands independent of graphics and windowing code.
 - [ ] Add simulation debug views for active jobs, reservations, routes, utility flow, and machine state.
 - [ ] Add an event log that can also feed player-facing alerts.
 

@@ -4,6 +4,7 @@ using System.Linq;
 using Brutal.ImGuiApi;
 using Brutal.Numerics;
 using Voidworks.Sim;
+using Voidworks.Sim.Commands;
 using Voidworks.Sim.Crew;
 using Voidworks.Sim.Items;
 using Voidworks.Sim.Jobs;
@@ -22,6 +23,7 @@ public sealed class InspectionPanel
         "ship-save.json");
 
     private string _persistenceStatus = "Save file: Local AppData\\Voidworks\\ship-save.json";
+    private string _commandStatus = string.Empty;
     public bool LoadRequested { get; private set; }
 
     public void Render(
@@ -215,7 +217,9 @@ public sealed class InspectionPanel
 
                 if (ImGui.Button(selectedMachine.IsOnline ? "Turn Machine OFF" : "Turn Machine ON"))
                 {
-                    selectedMachine.IsOnline = !selectedMachine.IsOnline;
+                    var result = sim.ExecuteCommand(
+                        new SetMachineOnlineCommand(selectedMachine.Id, !selectedMachine.IsOnline));
+                    _commandStatus = result.Message;
                 }
 
                 ImGui.Spacing();
@@ -232,7 +236,8 @@ public sealed class InspectionPanel
                             ImGui.TextColored(new float4(1.0f, 0.6f, 0.2f, 1.0f), "CORE COOLED: READY FOR RESTART");
                             if (ImGui.Button("Reset SCRAM & Restart Reactor"))
                             {
-                                selectedMachine.TryResetScram();
+                                var result = sim.ExecuteCommand(new ResetReactorScramCommand(selectedMachine.Id));
+                                _commandStatus = result.Message;
                             }
                         }
                         else
@@ -459,21 +464,21 @@ public sealed class InspectionPanel
 
                 if (ImGui.Button(sim.Cables.Contains(coord) ? "Remove Cable" : "Lay Power Cable"))
                 {
-                    if (sim.Cables.Contains(coord)) sim.Cables.Remove(coord);
-                    else sim.Cables.Add(coord);
+                    var result = sim.ExecuteCommand(new ToggleUtilityCommand(coord, UtilityKind.PowerCable));
+                    _commandStatus = result.Message;
                 }
 
                 ImGui.SameLine();
                 if (ImGui.Button(sim.PlumbingSolver.CoolantPipes.Contains(coord) ? "Remove Coolant Pipe" : "Lay Coolant Pipe"))
                 {
-                    if (sim.PlumbingSolver.CoolantPipes.Contains(coord)) sim.PlumbingSolver.CoolantPipes.Remove(coord);
-                    else sim.PlumbingSolver.CoolantPipes.Add(coord);
+                    var result = sim.ExecuteCommand(new ToggleUtilityCommand(coord, UtilityKind.CoolantPipe));
+                    _commandStatus = result.Message;
                 }
 
                 if (ImGui.Button(sim.PlumbingSolver.PropellantPipes.Contains(coord) ? "Remove Fuel Line" : "Lay Fuel Line"))
                 {
-                    if (sim.PlumbingSolver.PropellantPipes.Contains(coord)) sim.PlumbingSolver.PropellantPipes.Remove(coord);
-                    else sim.PlumbingSolver.PropellantPipes.Add(coord);
+                    var result = sim.ExecuteCommand(new ToggleUtilityCommand(coord, UtilityKind.PropellantPipe));
+                    _commandStatus = result.Message;
                 }
 
                 if (tile.Type == TileType.Door)
@@ -481,7 +486,8 @@ public sealed class InspectionPanel
                     ImGui.Text($"Door State: {tile.DoorState}");
                     if (ImGui.Button(tile.DoorState == DoorState.Open ? "Close Door" : "Open Door"))
                     {
-                        tile.DoorState = tile.DoorState == DoorState.Open ? DoorState.Closed : DoorState.Open;
+                        var result = sim.ExecuteCommand(new ToggleDoorCommand(coord));
+                        _commandStatus = result.Message;
                     }
                 }
 
@@ -531,6 +537,13 @@ public sealed class InspectionPanel
                 ImGui.BulletText("Spacebar: Pause / Resume");
             }
         }
+
+        if (!string.IsNullOrEmpty(_commandStatus))
+        {
+            ImGui.Separator();
+            ImGui.TextColored(new float4(0.6f, 0.85f, 1.0f, 1.0f), _commandStatus);
+        }
+
         ImGui.End();
     }
 
@@ -648,7 +661,7 @@ public sealed class InspectionPanel
             $"{plumbing.CoolantStoredLiters:F1} / {capacity:F1} L");
         ImGui.Text($"Ship reserve: {plumbing.CoolantReserveLiters:F1} L");
         if (ImGui.Button("Transfer Coolant (+10 L)"))
-            plumbing.TransferCoolantFromReserve(10.0);
+            sim.ExecuteCommand(new TransferCoolantCommand(10.0));
         ImGui.Text($"Circulation: {plumbing.TotalCoolantFlowRateLitersPerSecond:F2} L/s");
         if (plumbing.TotalCoolantLeakRateLitersPerSecond > 0.0)
             ImGui.TextColored(new float4(1.0f, 0.3f, 0.2f, 1.0f), $"Loop leak: {plumbing.TotalCoolantLeakRateLitersPerSecond:F2} L/s");
@@ -656,7 +669,7 @@ public sealed class InspectionPanel
         ImGui.Separator();
     }
 
-    private static void RenderConstructionOrders(SimulationState sim, GridCoord coord, ShipTile tile)
+    private void RenderConstructionOrders(SimulationState sim, GridCoord coord, ShipTile tile)
     {
         var pendingOrder = sim.JobManager.ActiveJobs.FirstOrDefault(job =>
             (job.Type == JobType.Construct || job.Type == JobType.Deconstruct) && job.TargetCoord == coord);
@@ -665,9 +678,7 @@ public sealed class InspectionPanel
             string label = pendingOrder.Type == JobType.Deconstruct ? "Deconstruction queued" : "Construction queued";
             ImGui.TextColored(new float4(1.0f, 0.8f, 0.3f, 1.0f), $"{label}: {pendingOrder.Name}");
             if (ImGui.Button("Cancel Order"))
-            {
-                sim.JobManager.CancelJob(pendingOrder);
-            }
+                SetCommandStatus(sim.ExecuteCommand(new CancelJobCommand(pendingOrder.Id)));
             return;
         }
 
@@ -678,75 +689,83 @@ public sealed class InspectionPanel
         if (machineOnTile != null)
         {
             if (ImGui.Button($"Dismantle {machineOnTile.Type} (reclaim materials)"))
-            {
-                sim.JobManager.PostJob(Job.CreateDismantleMachine(coord, machineOnTile.Type, workSeconds: 6.0));
-            }
+                ExecuteConstruction(sim, new DismantleMachineCommand(coord, WorkSeconds: 6.0));
         }
         else if (tile.Type == TileType.Space && coord.Cardinals().Any(adjacent =>
                 sim.Grid.IsInBounds(adjacent) && sim.Grid[adjacent].Type == TileType.Floor))
         {
             if (ImGui.Button("Build Hull Panel (2 steel)"))
-                sim.JobManager.PostJob(Job.CreateBuildTile(coord, TileType.HullWall, steelPlates: 2, workSeconds: 4.0));
+                ExecuteConstruction(sim, new BuildTileCommand(coord, TileType.HullWall, SteelPlates: 2, WorkSeconds: 4.0));
             ImGui.SameLine();
             if (ImGui.Button("Build Floor (1 steel)"))
-                sim.JobManager.PostJob(Job.CreateBuildTile(coord, TileType.Floor, steelPlates: 1, workSeconds: 3.0));
+                ExecuteConstruction(sim, new BuildTileCommand(coord, TileType.Floor, SteelPlates: 1, WorkSeconds: 3.0));
         }
         else if (tile.Type == TileType.HullWall)
         {
             if (!tile.IsBreached && ImGui.Button("Install Bulkhead Door (3 steel)"))
-                sim.JobManager.PostJob(Job.CreateBuildTile(coord, TileType.Door, steelPlates: 3, workSeconds: 5.0));
+                ExecuteConstruction(sim, new BuildTileCommand(coord, TileType.Door, SteelPlates: 3, WorkSeconds: 5.0));
             ImGui.SameLine();
             if (ImGui.Button("Deconstruct Hull (reclaim 1 steel)"))
-                sim.JobManager.PostJob(Job.CreateDeconstructTile(coord, workSeconds: 4.0));
+                ExecuteConstruction(sim, new DeconstructTileCommand(coord, WorkSeconds: 4.0));
         }
         else if (tile.Type == TileType.InteriorWall)
         {
             if (!tile.IsBreached && ImGui.Button("Install Bulkhead Door (3 steel)"))
-                sim.JobManager.PostJob(Job.CreateBuildTile(coord, TileType.Door, steelPlates: 3, workSeconds: 5.0));
+                ExecuteConstruction(sim, new BuildTileCommand(coord, TileType.Door, SteelPlates: 3, WorkSeconds: 5.0));
             ImGui.SameLine();
             if (ImGui.Button("Deconstruct Wall (reclaim 1 steel)"))
-                sim.JobManager.PostJob(Job.CreateDeconstructTile(coord, workSeconds: 3.0));
+                ExecuteConstruction(sim, new DeconstructTileCommand(coord, WorkSeconds: 3.0));
         }
         else if (tile.Type == TileType.Door)
         {
             if (ImGui.Button("Deconstruct Door (reclaim 2 steel)"))
-                sim.JobManager.PostJob(Job.CreateDeconstructTile(coord, workSeconds: 4.0));
+                ExecuteConstruction(sim, new DeconstructTileCommand(coord, WorkSeconds: 4.0));
         }
         else if (tile.Type == TileType.Floor)
         {
             if (ImGui.Button("Build Interior Wall (1 steel)"))
-                sim.JobManager.PostJob(Job.CreateBuildTile(coord, TileType.InteriorWall, steelPlates: 1, workSeconds: 3.0));
+                ExecuteConstruction(sim, new BuildTileCommand(coord, TileType.InteriorWall, SteelPlates: 1, WorkSeconds: 3.0));
             ImGui.SameLine();
             if (ImGui.Button("Deconstruct Floor (reclaim 1 steel)"))
-                sim.JobManager.PostJob(Job.CreateDeconstructTile(coord, workSeconds: 3.0));
+                ExecuteConstruction(sim, new DeconstructTileCommand(coord, WorkSeconds: 3.0));
 
             ImGui.Separator();
             ImGui.TextDisabled("Install Machinery on Floor:");
             if (ImGui.Button("Build Component Fabricator (8 steel)"))
-                sim.JobManager.PostJob(Job.CreateInstallMachine(coord, MachineType.ComponentFabricator, 8, 0, 15.0));
+                ExecuteConstruction(sim, new InstallMachineCommand(coord, MachineType.ComponentFabricator, 8, 0, 15.0));
             if (ImGui.Button("Build Ice Processor (5 steel + 1 component)"))
-                sim.JobManager.PostJob(Job.CreateInstallMachine(coord, MachineType.IceProcessor, 5, 1, 10.0));
+                ExecuteConstruction(sim, new InstallMachineCommand(coord, MachineType.IceProcessor, 5, 1, 10.0));
             if (ImGui.Button("Build Mining Laser (6 steel + 1 component)"))
-                sim.JobManager.PostJob(Job.CreateInstallMachine(coord, MachineType.MiningLaser, 6, 1, 12.0));
+                ExecuteConstruction(sim, new InstallMachineCommand(coord, MachineType.MiningLaser, 6, 1, 12.0));
             if (ImGui.Button("Build Smelter (6 steel)"))
-                sim.JobManager.PostJob(Job.CreateInstallMachine(coord, MachineType.SmelterRefinery, 6, 0, 12.0));
+                ExecuteConstruction(sim, new InstallMachineCommand(coord, MachineType.SmelterRefinery, 6, 0, 12.0));
             if (ImGui.Button("Build Battery (4 steel)"))
-                sim.JobManager.PostJob(Job.CreateInstallMachine(coord, MachineType.Battery, 4, 0, 8.0));
+                ExecuteConstruction(sim, new InstallMachineCommand(coord, MachineType.Battery, 4, 0, 8.0));
             if (ImGui.Button("Build Reactor (10 steel + 2 components)"))
-                sim.JobManager.PostJob(Job.CreateInstallMachine(coord, MachineType.Reactor, 10, 2, 24.0));
+                ExecuteConstruction(sim, new InstallMachineCommand(coord, MachineType.Reactor, 10, 2, 24.0));
             if (ImGui.Button("Build Oxygen Generator (6 steel + 1 component)"))
-                sim.JobManager.PostJob(Job.CreateInstallMachine(coord, MachineType.OxygenGenerator, 6, 1, 12.0));
+                ExecuteConstruction(sim, new InstallMachineCommand(coord, MachineType.OxygenGenerator, 6, 1, 12.0));
             if (ImGui.Button("Build Carbon Scrubber (4 steel + 1 component)"))
-                sim.JobManager.PostJob(Job.CreateInstallMachine(coord, MachineType.CarbonScrubber, 4, 1, 8.0));
+                ExecuteConstruction(sim, new InstallMachineCommand(coord, MachineType.CarbonScrubber, 4, 1, 8.0));
             if (ImGui.Button("Build Hydroponics Bay (6 steel + 1 component)"))
-                sim.JobManager.PostJob(Job.CreateInstallMachine(coord, MachineType.HydroponicsBay, 6, 1, 12.0));
+                ExecuteConstruction(sim, new InstallMachineCommand(coord, MachineType.HydroponicsBay, 6, 1, 12.0));
             if (ImGui.Button("Build Fuel Tank (6 steel + 1 component)"))
-                sim.JobManager.PostJob(Job.CreateInstallMachine(coord, MachineType.FuelTank, 6, 1, 10.0));
+                ExecuteConstruction(sim, new InstallMachineCommand(coord, MachineType.FuelTank, 6, 1, 10.0));
             if (ImGui.Button("Build Main Engine (8 steel + 2 components)"))
-                sim.JobManager.PostJob(Job.CreateInstallMachine(coord, MachineType.MainEngine, 8, 2, 20.0));
+                ExecuteConstruction(sim, new InstallMachineCommand(coord, MachineType.MainEngine, 8, 2, 20.0));
             if (ImGui.Button("Build Radiator (5 steel)"))
-                sim.JobManager.PostJob(Job.CreateInstallMachine(coord, MachineType.Radiator, 5, 0, 10.0));
+                ExecuteConstruction(sim, new InstallMachineCommand(coord, MachineType.Radiator, 5, 0, 10.0));
         }
+    }
+
+    private void ExecuteConstruction(SimulationState sim, ISimulationCommand command)
+        => SetCommandStatus(sim.ExecuteCommand(command));
+
+    private void SetCommandStatus(SimulationCommandResult result)
+    {
+        _commandStatus = result.Success
+            ? result.Message
+            : $"Rejected ({result.FailureCode}): {result.Message}";
     }
 
     private void RenderPersistenceControls(SimulationState sim)

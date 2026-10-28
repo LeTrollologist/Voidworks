@@ -13,7 +13,9 @@ public enum SimulationEventKind
     JobCancelled,
     JobFailed,
     CrewDied,
-    CrewIncapacitated
+    CrewIncapacitated,
+    CommandApplied,
+    CommandRejected
 }
 
 /// <summary>
