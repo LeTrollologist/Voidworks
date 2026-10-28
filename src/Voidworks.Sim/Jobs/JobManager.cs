@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Voidworks.Sim.Crew;
+using Voidworks.Sim.Diagnostics;
 using Voidworks.Sim.Items;
 using Voidworks.Sim.Navigation;
 using Voidworks.Sim.Ship;
@@ -10,21 +11,64 @@ namespace Voidworks.Sim.Jobs;
 
 public sealed class JobManager
 {
+    /// <summary>Attempts allowed before a job is marked failed and stops being claimable.</summary>
+    public const int MaximumAttemptsPerJob = 3;
+
     private readonly List<Job> _jobs = new();
     private readonly List<Item> _worldItems = new();
+
+    public JobManager(SimulationEventLog? events = null)
+    {
+        Events = events ?? new SimulationEventLog();
+    }
 
     public IReadOnlyList<Job> ActiveJobs => _jobs;
     public IReadOnlyList<Item> WorldItems => _worldItems;
     public List<Job> CompletedJobsHistory { get; } = new();
+    public List<Job> FailedJobsHistory { get; } = new();
     public IEnumerable<Job> AssistanceJobs => _jobs.Where(job => job.Type == JobType.AssistCrew);
+    public SimulationEventLog Events { get; }
+    public double SimTime { get; private set; }
+
+    public void AdvanceClock(double simTime)
+    {
+        if (!double.IsFinite(simTime) || simTime < 0.0)
+            throw new ArgumentOutOfRangeException(nameof(simTime));
+        SimTime = simTime;
+    }
 
     public void AddItem(Item item) => _worldItems.Add(item);
-    public void RemoveItem(Item item) => _worldItems.Remove(item);
+
+    public void RemoveItem(Item item)
+    {
+        _worldItems.Remove(item);
+
+        // A carried item remains a valid target (its owner is hauling it), but an
+        // item that left the world can no longer satisfy queued work.
+        if (item.IsCarried)
+            return;
+
+        foreach (var job in _jobs.Where(candidate => candidate.TargetItem?.Id == item.Id).ToList())
+            CancelJob(job, $"Target item '{item.Name}' was removed from the world.");
+    }
 
     public void PostJob(Job job)
     {
-        if (!_jobs.Any(j => j.Id == job.Id))
-            _jobs.Add(job);
+        if (_jobs.Any(existing => existing.Id == job.Id))
+            return;
+
+        _jobs.Add(job);
+        Events.Add(SimTime, SimulationEventKind.JobPosted,
+            $"{job.Type} job posted: {job.Name}", job.Id);
+    }
+
+    private void ReleaseItemReservation(Job job)
+    {
+        if (job.TargetItem is { IsCarried: false } item &&
+            item.ReservedByCrewId == job.AssignedCrewId)
+        {
+            item.ReservedByCrewId = null;
+        }
     }
 
     public Job? PostAssistanceRequest(
@@ -46,7 +90,7 @@ public sealed class JobManager
 
         var existing = AssistanceJobs.FirstOrDefault(job =>
             job.TargetCrewId == requester.Id && job.SourceTaskJobId == sourceTask?.Id &&
-            job.AssistanceReason == reason && !job.IsCancelled && !job.IsCompleted);
+            job.AssistanceReason == reason && !job.IsTerminal);
         if (existing != null)
         {
             existing.AssistanceItemTypes.Clear();
@@ -61,7 +105,7 @@ public sealed class JobManager
 
     public bool HasAssistanceRequest(Guid requesterCrewId, Guid? sourceTaskJobId)
         => AssistanceJobs.Any(job => job.TargetCrewId == requesterCrewId &&
-            job.SourceTaskJobId == sourceTaskJobId && !job.IsCancelled && !job.IsCompleted);
+            job.SourceTaskJobId == sourceTaskJobId && !job.IsTerminal);
 
     public void CancelAssistanceRequests(Guid requesterCrewId, Guid? sourceTaskJobId)
     {
@@ -76,36 +120,154 @@ public sealed class JobManager
         if (!assistanceJob.SourceTaskJobId.HasValue)
             return null;
 
-        var sourceTask = _jobs.FirstOrDefault(job => job.Id == assistanceJob.SourceTaskJobId.Value &&
-            job.Type != JobType.AssistCrew && !job.IsCompleted && !job.IsCancelled);
-        bool assignedToAnotherCrew = sourceTask?.AssignedCrewId.HasValue == true &&
-            sourceTask.AssignedCrewId != helper.Id &&
-            sourceTask.AssignedCrewId != assistanceJob.TargetCrewId;
-        bool itemReservedByAnotherCrew = sourceTask?.TargetItem?.ReservedByCrewId.HasValue == true &&
-            sourceTask.TargetItem.ReservedByCrewId != helper.Id &&
-            (sourceTask.TargetItem.ReservedByCrewId != assistanceJob.TargetCrewId || sourceTask.TargetItem.IsCarried);
-        if (sourceTask == null ||
-            assignedToAnotherCrew || itemReservedByAnotherCrew)
+        Guid sourceId = assistanceJob.SourceTaskJobId.Value;
+        var sourceTask = _jobs.FirstOrDefault(job => job.Id == sourceId && job.Type != JobType.AssistCrew)
+            ?? FailedJobsHistory.FirstOrDefault(job => job.Id == sourceId && job.Type != JobType.AssistCrew);
+        if (sourceTask == null || (sourceTask.IsTerminal && sourceTask.State != JobState.Failed))
             return null;
 
-        sourceTask.AssignedCrewId = helper.Id;
+        bool assignedToAnotherCrew = sourceTask.AssignedCrewId.HasValue &&
+            sourceTask.AssignedCrewId != helper.Id &&
+            sourceTask.AssignedCrewId != assistanceJob.TargetCrewId;
+        bool itemReservedByAnotherCrew = sourceTask.TargetItem?.ReservedByCrewId.HasValue == true &&
+            sourceTask.TargetItem.ReservedByCrewId != helper.Id &&
+            (sourceTask.TargetItem.ReservedByCrewId != assistanceJob.TargetCrewId || sourceTask.TargetItem.IsCarried);
+        if (assignedToAnotherCrew || itemReservedByAnotherCrew)
+            return null;
+
+        if (sourceTask.State == JobState.Failed)
+        {
+            FailedJobsHistory.Remove(sourceTask);
+            sourceTask.ResetFailureHistory();
+            _jobs.Add(sourceTask);
+            Events.Add(SimTime, SimulationEventKind.JobRetryScheduled,
+                $"Revived failed job after assistance: {sourceTask.Name}", sourceTask.Id, helper.Id);
+        }
+
+        sourceTask.TransitionToReserved(helper.Id);
         if (sourceTask.TargetItem != null && !sourceTask.TargetItem.IsCarried)
             sourceTask.TargetItem.ReservedByCrewId = helper.Id;
+        Events.Add(SimTime, SimulationEventKind.JobReserved,
+            $"{sourceTask.Type} job assigned to helper {helper.Name}: {sourceTask.Name}",
+            sourceTask.Id, helper.Id);
         CompleteJob(assistanceJob);
         return sourceTask;
     }
 
-    public void CancelJob(Job job)
+    public void CancelJob(Job job, string? reason = null)
     {
-        job.IsCancelled = true;
+        if (job.IsTerminal)
+            return;
+
+        ReleaseItemReservation(job);
+        job.MarkCancelled();
         _jobs.Remove(job);
+        Events.Add(SimTime, SimulationEventKind.JobCancelled,
+            $"{job.Type} job cancelled: {job.Name}" +
+            (string.IsNullOrWhiteSpace(reason) ? string.Empty : $" ({reason})"), job.Id);
     }
 
     public void CompleteJob(Job job)
     {
-        job.IsCompleted = true;
+        if (job.IsTerminal)
+            return;
+
+        ReleaseItemReservation(job);
+        job.MarkCompleted();
         _jobs.Remove(job);
-        CompletedJobsHistory.Add(job);
+        if (!CompletedJobsHistory.Contains(job))
+            CompletedJobsHistory.Add(job);
+        Events.Add(SimTime, SimulationEventKind.JobCompleted,
+            $"{job.Type} job completed: {job.Name}", job.Id);
+    }
+
+    /// <summary>
+    /// Re-queues a job after an external blocker was cleared (for example, a
+    /// teammate opened a locked door). Failed jobs are revived from history.
+    /// </summary>
+    public void ResetJobForRetry(Guid jobId, Guid? assignedCrewId = null)
+    {
+        var job = _jobs.FirstOrDefault(candidate => candidate.Id == jobId)
+            ?? FailedJobsHistory.FirstOrDefault(candidate => candidate.Id == jobId);
+        if (job == null || (job.IsTerminal && job.State != JobState.Failed))
+            return;
+
+        if (job.State == JobState.Failed)
+        {
+            FailedJobsHistory.Remove(job);
+            if (!_jobs.Contains(job))
+                _jobs.Add(job);
+        }
+
+        job.ResetFailureHistory();
+        job.TransitionToQueued(assignedCrewId);
+        Events.Add(SimTime, SimulationEventKind.JobRetryScheduled,
+            $"Job re-queued after assistance: {job.Name}", job.Id, assignedCrewId);
+    }
+
+    /// <summary>Marks a job as actively being executed by its assignee.</summary>
+    public void BeginJob(Job job)
+    {
+        if (job.IsTerminal || job.State == JobState.Active)
+            return;
+
+        job.TransitionToActive();
+        Events.Add(SimTime, SimulationEventKind.JobStarted,
+            $"{job.Type} job started: {job.Name}", job.Id, job.AssignedCrewId);
+    }
+
+    /// <summary>
+    /// Returns a job to the board with an explicit blocked reason, releasing the
+    /// previous assignee and item reservation. Blocked jobs remain claimable.
+    /// </summary>
+    public void BlockJob(Job job, Guid? crewId, string reason)
+    {
+        if (job.IsTerminal)
+            return;
+
+        ReleaseItemReservation(job);
+        job.TransitionToBlocked(reason);
+        Events.Add(SimTime, SimulationEventKind.JobBlocked,
+            $"{job.Type} job blocked: {job.Name} ({reason})", job.Id, crewId);
+    }
+
+    /// <summary>
+    /// Records a failed attempt with bounded retry/backoff. Once the attempt budget
+    /// is exhausted the job becomes terminal, leaves the board, and is retained in
+    /// <see cref="FailedJobsHistory"/> for diagnostics.
+    /// </summary>
+    public void FailJob(Job job, string reason)
+    {
+        if (job.IsTerminal)
+            return;
+
+        ReleaseItemReservation(job);
+        int attempt = job.FailedAttempts + 1;
+        double retryDelay = attempt <= 1 ? 0.0 : Math.Min(15.0, 2.0 * (attempt - 1));
+        bool exhausted = job.RecordFailure(reason, MaximumAttemptsPerJob, SimTime + retryDelay);
+        if (exhausted)
+        {
+            _jobs.Remove(job);
+            if (!FailedJobsHistory.Contains(job))
+                FailedJobsHistory.Add(job);
+            Events.Add(SimTime, SimulationEventKind.JobFailed,
+                $"{job.Type} job failed after {job.FailedAttempts} attempts: {job.Name} ({reason})", job.Id);
+            return;
+        }
+
+        Events.Add(SimTime, SimulationEventKind.JobRetryScheduled,
+            $"{job.Type} job retry {job.FailedAttempts}/{MaximumAttemptsPerJob} at {job.RetryNotBeforeSimTime:F1}s: {job.Name} ({reason})",
+            job.Id);
+    }
+
+    /// <summary>
+    /// Invalidates jobs whose target item was consumed or destroyed. Called when a
+    /// carried component is spent on construction or breach repair.
+    /// </summary>
+    public void OnItemConsumed(Item item)
+    {
+        foreach (var job in _jobs.Where(candidate => candidate.TargetItem?.Id == item.Id).ToList())
+            CancelJob(job, $"Target item '{item.Name}' was consumed.");
     }
 
     public Item? FindAvailableItem(ItemType type, GridCoord nearCoord, Guid? requestingCrewId = null)
@@ -130,9 +292,11 @@ public sealed class JobManager
 
         if (job != null)
         {
-            job.AssignedCrewId = crew.Id;
+            job.TransitionToReserved(crew.Id);
             if (job.TargetItem != null && !job.TargetItem.IsCarried)
                 job.TargetItem.ReservedByCrewId = crew.Id;
+            Events.Add(SimTime, SimulationEventKind.JobReserved,
+                $"{job.Type} job claimed by {crew.Name}: {job.Name}", job.Id, crew.Id);
         }
 
         return job;
@@ -170,7 +334,12 @@ public sealed class JobManager
             .ThenBy(job => EstimateTravelDistance(job, helper, grid))
             .FirstOrDefault();
         if (request != null)
-            request.AssignedCrewId = helper.Id;
+        {
+            request.TransitionToReserved(helper.Id);
+            Events.Add(SimTime, SimulationEventKind.JobReserved,
+                $"Assistance request claimed by {helper.Name}: {request.Name}", request.Id, helper.Id);
+        }
+
         return request;
     }
 
@@ -184,7 +353,7 @@ public sealed class JobManager
 
         var candidate = _jobs
             .Where(job => job.Type == JobType.RepairBreach && job.Priority >= 100 &&
-                          !job.IsCompleted && !job.IsCancelled && job.AssignedCrewId.HasValue &&
+                          !job.IsTerminal && job.AssignedCrewId.HasValue &&
                           job.AssignedCrewId != helper.Id)
             .Select(job =>
             {
@@ -220,28 +389,51 @@ public sealed class JobManager
         => Math.Abs(first.X - second.X) + Math.Abs(first.Y - second.Y) <= 1;
 
     public bool CanCrewClaimJob(Job job, CrewMember crew)
-        => !job.IsCompleted && !job.IsCancelled &&
+        => job.CanBeClaimedAt(SimTime) &&
            (job.AssignedCrewId == null || job.AssignedCrewId == crew.Id) &&
            (job.TargetItem?.ReservedByCrewId == null || job.TargetItem.ReservedByCrewId == crew.Id) &&
            (job.Type != JobType.AssistCrew || CanAssist(job, crew));
 
     public void ReleaseJob(Job job)
     {
-        Guid? previousAssignee = job.AssignedCrewId;
-        job.AssignedCrewId = null;
-        if (previousAssignee.HasValue && job.TargetItem?.ReservedByCrewId == previousAssignee &&
-            job.TargetItem.IsCarried == false)
-            job.TargetItem.ReservedByCrewId = null;
-    }
-
-    public void ReleaseJobForRetry(Job job, Guid retryingCrewId)
-    {
-        if (job.IsCompleted || job.IsCancelled)
+        if (job.IsTerminal)
             return;
 
-        job.AssignedCrewId = retryingCrewId;
-        if (job.TargetItem?.ReservedByCrewId == retryingCrewId && !job.TargetItem.IsCarried)
-            job.TargetItem.ReservedByCrewId = null;
+        ReleaseItemReservation(job);
+        job.TransitionToQueued(null);
+    }
+
+    /// <summary>
+    /// Releases a job after a failed attempt and applies bounded retry/backoff.
+    /// The first retry is immediate; later retries are delayed, and an exhausted
+    /// attempt budget moves the job to <see cref="FailedJobsHistory"/>.
+    /// </summary>
+    public void ReleaseJobForRetry(Job job, Guid retryingCrewId, string? reason = null)
+    {
+        if (job.IsTerminal)
+            return;
+
+        ReleaseItemReservation(job);
+        int attempt = job.FailedAttempts + 1;
+        double retryDelay = attempt <= 1 ? 0.0 : Math.Min(15.0, 2.0 * (attempt - 1));
+        bool exhausted = job.RecordFailure(
+            reason ?? "Task attempt could not be completed",
+            MaximumAttemptsPerJob,
+            SimTime + retryDelay);
+        if (exhausted)
+        {
+            _jobs.Remove(job);
+            if (!FailedJobsHistory.Contains(job))
+                FailedJobsHistory.Add(job);
+            Events.Add(SimTime, SimulationEventKind.JobFailed,
+                $"{job.Type} job failed after {job.FailedAttempts} attempts: {job.Name}", job.Id, retryingCrewId);
+            return;
+        }
+
+        job.TransitionToQueued(retryingCrewId);
+        Events.Add(SimTime, SimulationEventKind.JobRetryScheduled,
+            $"{job.Type} job retry {job.FailedAttempts}/{MaximumAttemptsPerJob} at {job.RetryNotBeforeSimTime:F1}s: {job.Name}",
+            job.Id, retryingCrewId);
     }
 
     public void ReleaseJobsAssignedTo(Guid crewId)
@@ -280,7 +472,8 @@ public sealed class JobManager
                 var tile = grid[x, y];
                 if (tile.IsBreached)
                 {
-                    bool jobExists = _jobs.Any(j => j.Type == JobType.RepairBreach && j.TargetCoord == tile.Coord && !j.IsCompleted);
+                    bool jobExists = _jobs.Any(j => j.Type == JobType.RepairBreach && j.TargetCoord == tile.Coord &&
+                                                    !j.IsTerminal);
                     if (!jobExists)
                     {
                         PostJob(Job.CreateBreachRepair(tile.Coord));

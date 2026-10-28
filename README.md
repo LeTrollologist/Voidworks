@@ -195,6 +195,14 @@ Run the test suite locally:
 dotnet test
 ```
 
+Focused headless scenario sweep:
+
+```powershell
+dotnet test --filter FullyQualifiedName~ScenarioSmokeTests
+```
+
+Every shipped scenario starts from a shared fixture, runs for 30 simulated seconds, and a long-run variant advances until the scenario terminates with invariant checks enabled on every tick. Simulation update ordering, the job lifecycle and retry policy, development invariants, save format version 3, and known limitations are documented in [docs/simulation-contract.md](docs/simulation-contract.md).
+
 The passing-test count describes the reported development milestone and is not a guarantee that every future commit will pass. Run the tests against the revision you have checked out.
 
 ## Design principles

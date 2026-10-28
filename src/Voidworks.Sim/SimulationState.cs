@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Voidworks.Sim.Atmosphere;
 using Voidworks.Sim.Crew;
+using Voidworks.Sim.Diagnostics;
 using Voidworks.Sim.Items;
 using Voidworks.Sim.Jobs;
 using Voidworks.Sim.Machinery;
@@ -29,6 +30,21 @@ public sealed class SimulationState
     public bool IsPaused { get; set; } = false;
     public double TimeScale { get; set; } = 1.0; // 1x, 2x, 5x, 10x
 
+    /// <summary>
+    /// Enables development invariant validation at the end of every tick. Tests and
+    /// diagnostic runs enable this; normal play leaves it off to avoid the cost.
+    /// </summary>
+    public bool InvariantChecksEnabled { get; set; }
+
+    public SimulationEventLog Events => JobManager.Events;
+
+    private readonly Dictionary<Guid, CrewVitalSnapshot> _crewVitals = new();
+
+    private readonly record struct CrewVitalSnapshot(bool IsAlive, bool IsIncapacitated);
+
+    public IReadOnlyList<SimulationInvariantViolation> ValidateInvariants()
+        => SimulationInvariants.Validate(this);
+
     public const double FixedTickDt = 0.1; // 10 fixed ticks per simulation second
     private double _accumulator = 0.0;
     internal double UpdateAccumulator => _accumulator;
@@ -42,6 +58,8 @@ public sealed class SimulationState
 
     public void Step(double dt)
     {
+        JobManager.AdvanceClock(SimTime);
+
         // 1. Solve electrical power grid
         PowerGridSolver.Tick(Grid, Machines, Cables, dt);
 
@@ -73,6 +91,14 @@ public sealed class SimulationState
             c.Tick(Grid, JobManager, dt, nearbyCrewCount, Crew, Machines);
         }
 
+        // Crew that died or became incapacitated during this tick must not leave
+        // jobs reserved. Release them before new emergencies are posted.
+        foreach (var c in Crew.Where(c =>
+                     !c.Crew.Physiology.IsAlive || c.Crew.Physiology.IsIncapacitated))
+        {
+            JobManager.ReleaseJobsAssignedTo(c.Crew.Id);
+        }
+
         // 7. Detect world emergencies (breaches, broken systems)
         JobManager.ScanWorldForEmergencies(Grid);
 
@@ -80,6 +106,43 @@ public sealed class SimulationState
         ActiveScenario?.Update(this, dt);
 
         SimTime += dt;
+        RecordCrewVitalChanges();
+        ThrowIfInvariantViolations();
+    }
+
+    private void RecordCrewVitalChanges()
+    {
+        foreach (var agent in Crew)
+        {
+            Guid crewId = agent.Crew.Id;
+            bool isAlive = agent.Crew.Physiology.IsAlive;
+            bool isIncapacitated = agent.Crew.Physiology.IsIncapacitated;
+            if (_crewVitals.TryGetValue(crewId, out CrewVitalSnapshot previous))
+            {
+                if (previous.IsAlive && !isAlive)
+                {
+                    Events.Add(SimTime, SimulationEventKind.CrewDied,
+                        $"{agent.Crew.Name} died at {agent.Crew.Position}", crewId: crewId);
+                }
+                else if (previous.IsAlive && !previous.IsIncapacitated && isIncapacitated)
+                {
+                    Events.Add(SimTime, SimulationEventKind.CrewIncapacitated,
+                        $"{agent.Crew.Name} became incapacitated at {agent.Crew.Position}", crewId: crewId);
+                }
+            }
+
+            _crewVitals[crewId] = new CrewVitalSnapshot(isAlive, isIncapacitated);
+        }
+    }
+
+    private void ThrowIfInvariantViolations()
+    {
+        if (!InvariantChecksEnabled)
+            return;
+
+        IReadOnlyList<SimulationInvariantViolation> violations = ValidateInvariants();
+        if (violations.Count > 0)
+            throw new SimulationInvariantException(violations);
     }
 
     internal void RestoreClock(double simTime, double updateAccumulator)
@@ -392,7 +455,7 @@ public sealed class SimulationState
                 .Where(item => item.Type == ItemType.IronOre && item.IsAvailable)
                 .OrderBy(item => Math.Abs(item.Position.X - smelter.Position.X) + Math.Abs(item.Position.Y - smelter.Position.Y))
                 .FirstOrDefault(item => !JobManager.ActiveJobs.Any(job =>
-                    job.Type == JobType.RefineOre && job.TargetItem?.Id == item.Id));
+                    job.TargetItem?.Id == item.Id));
 
             if (ore != null)
                 JobManager.PostJob(Job.CreateRefineOre(smelter.Position, ore));

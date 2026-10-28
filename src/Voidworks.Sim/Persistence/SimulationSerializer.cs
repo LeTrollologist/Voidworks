@@ -18,7 +18,13 @@ namespace Voidworks.Sim.Persistence;
 
 public static class SimulationSerializer
 {
-    private const int CurrentSaveFormatVersion = 2;
+    /// <summary>
+    /// Current save format. Version 3 adds job lifecycle state, failed-attempt
+    /// counts, blocked reasons, and retry timestamps. Versions 0-2 remain readable;
+    /// their jobs are migrated by deriving state from the legacy completion flags.
+    /// </summary>
+    public const int CurrentSaveFormatVersion = 3;
+    public const int MinimumSupportedSaveFormatVersion = 0;
     private const long MaximumSavedGridTileCount = 1_000_000;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -277,6 +283,7 @@ public static class SimulationSerializer
         }
 
         var jobManager = new JobManager();
+        jobManager.AdvanceClock(dto.SimTime);
         var atmosphereSolver = new AtmosphereSolver();
         var sim = new SimulationState(grid, atmosphereSolver, jobManager);
 
@@ -420,7 +427,7 @@ public static class SimulationSerializer
         var jobsById = new Dictionary<Guid, Job>();
         foreach (var jobDto in dto.Jobs)
         {
-            var job = FromJobDto(jobDto, itemsById);
+            var job = FromJobDto(jobDto, itemsById, dto.SaveFormatVersion);
             jobsById[job.Id] = job;
             jobManager.PostJob(job);
         }
@@ -430,9 +437,11 @@ public static class SimulationSerializer
         {
             var ai = crewAisById[crewDto.Id];
             Job? currentJob = crewDto.CurrentJob != null
-                ? ResolveJob(crewDto.CurrentJob, jobsById, itemsById)
+                ? ResolveJob(crewDto.CurrentJob, jobsById, itemsById, dto.SaveFormatVersion)
                 : null;
-            var pendingJobs = crewDto.PendingSubJobs.Select(j => ResolveJob(j, jobsById, itemsById)).ToList();
+            var pendingJobs = crewDto.PendingSubJobs
+                .Select(j => ResolveJob(j, jobsById, itemsById, dto.SaveFormatVersion))
+                .ToList();
             ai.RestoreExecutionState(
                 currentJob,
                 pendingJobs,
@@ -774,6 +783,23 @@ public static class SimulationSerializer
             throw new InvalidDataException("Save data contains a job with an empty id.");
         if (!Enum.IsDefined(typeof(JobType), job.Type))
             throw new InvalidDataException($"Job '{job.Name}' contains an unknown type.");
+        if (!Enum.IsDefined(typeof(JobState), job.State))
+            throw new InvalidDataException($"Job '{job.Name}' contains an unknown lifecycle state.");
+        if (job.FailedAttempts < 0)
+            throw new InvalidDataException($"Job '{job.Name}' contains a negative failed-attempt count.");
+        RequireFiniteNonNegative(job.RetryNotBeforeSimTime, "job retry time");
+        if (job.State.IsTerminal() && job.AssignedCrewId.HasValue)
+            throw new InvalidDataException($"Job '{job.Name}' is terminal but still has an assignee.");
+        if (job.State == JobState.Reserved && !job.AssignedCrewId.HasValue)
+            throw new InvalidDataException($"Job '{job.Name}' is reserved but has no assignee.");
+        if (job.State == JobState.Completed && job.IsCancelled ||
+            job.State == JobState.Cancelled && job.IsCompleted)
+            throw new InvalidDataException($"Job '{job.Name}' has contradictory completion flags.");
+        if (job.State == JobState.Completed && !job.IsCompleted ||
+            job.State == JobState.Cancelled && !job.IsCancelled)
+            throw new InvalidDataException($"Job '{job.Name}' has flags inconsistent with its lifecycle state.");
+        if (job.BlockedReason is { Length: > 512 } || job.LastFailureReason is { Length: > 512 })
+            throw new InvalidDataException($"Job '{job.Name}' contains an overlong failure reason.");
         if (job.Name == null ||
             (job.DesiredItemType.HasValue && !Enum.IsDefined(typeof(ItemType), job.DesiredItemType.Value)) ||
             (job.AssistanceReason.HasValue && !Enum.IsDefined(typeof(CrewDiagnosticReason), job.AssistanceReason.Value)))
@@ -913,18 +939,27 @@ public static class SimulationSerializer
         RequiredSteelPlates = job.RequiredSteelPlates,
         RequiredMachineComponents = job.RequiredMachineComponents,
         IsCompleted = job.IsCompleted,
-        IsCancelled = job.IsCancelled
+        IsCancelled = job.IsCancelled,
+        State = job.State,
+        FailedAttempts = job.FailedAttempts,
+        LastFailureReason = job.LastFailureReason,
+        BlockedReason = job.BlockedReason,
+        RetryNotBeforeSimTime = job.RetryNotBeforeSimTime
     };
 
-    private static Job ResolveJob(JobSaveDto dto, Dictionary<Guid, Job> jobsById, Dictionary<Guid, Item> itemsById)
+    private static Job ResolveJob(
+        JobSaveDto dto,
+        Dictionary<Guid, Job> jobsById,
+        Dictionary<Guid, Item> itemsById,
+        int saveFormatVersion)
     {
         if (jobsById.TryGetValue(dto.Id, out var existing)) return existing;
-        var job = FromJobDto(dto, itemsById);
+        var job = FromJobDto(dto, itemsById, saveFormatVersion);
         jobsById[job.Id] = job;
         return job;
     }
 
-    private static Job FromJobDto(JobSaveDto dto, Dictionary<Guid, Item> itemsById)
+    private static Job FromJobDto(JobSaveDto dto, Dictionary<Guid, Item> itemsById, int saveFormatVersion)
     {
         var job = new Job(dto.Type, new GridCoord(dto.TargetX, dto.TargetY), dto.Priority, dto.WorkRemaining, dto.Name)
         {
@@ -940,6 +975,21 @@ public static class SimulationSerializer
             IsCompleted = dto.IsCompleted,
             IsCancelled = dto.IsCancelled
         };
+
+        // Saves before version 3 only stored terminal flags, so lifecycle state is
+        // derived. Version 3+ stores the authoritative state and retry bookkeeping.
+        JobState state = saveFormatVersion >= 3
+            ? dto.State
+            : dto.IsCompleted ? JobState.Completed
+                : dto.IsCancelled ? JobState.Cancelled
+                : JobState.Queued;
+        job.RestoreLifecycle(
+            state,
+            saveFormatVersion >= 3 ? dto.FailedAttempts : 0,
+            saveFormatVersion >= 3 ? dto.LastFailureReason : null,
+            saveFormatVersion >= 3 ? dto.BlockedReason : null,
+            saveFormatVersion >= 3 ? dto.RetryNotBeforeSimTime : 0.0);
+
         job.AssistanceItemTypes.AddRange(dto.AssistanceItemTypes);
         job.FailedAssistantCrewIds.AddRange(dto.FailedAssistantCrewIds);
         if (dto.TargetItemId.HasValue && itemsById.TryGetValue(dto.TargetItemId.Value, out var item))
@@ -1153,6 +1203,13 @@ public sealed class JobSaveDto
     public int RequiredMachineComponents { get; set; }
     public bool IsCompleted { get; set; }
     public bool IsCancelled { get; set; }
+
+    // Version 3 lifecycle fields. Defaults keep versions 0-2 readable.
+    public JobState State { get; set; } = JobState.Queued;
+    public int FailedAttempts { get; set; }
+    public string? LastFailureReason { get; set; }
+    public string? BlockedReason { get; set; }
+    public double RetryNotBeforeSimTime { get; set; }
 }
 
 public sealed class ScenarioObjectiveSaveDto

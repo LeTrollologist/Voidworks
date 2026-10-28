@@ -115,6 +115,8 @@ public sealed class CrewAI
 
         if (CurrentJob?.Type == JobType.AssistCrew && !jobManager.ActiveJobs.Contains(CurrentJob))
         {
+            if (!CurrentJob.IsTerminal)
+                jobManager.ReleaseJob(CurrentJob);
             CurrentJob = null;
             _currentPath = null;
             _moveAccumulator = 0.0;
@@ -329,7 +331,7 @@ public sealed class CrewAI
                 bool planSucceeded = PlanBreachRepairPrerequisites(grid, jobManager, emergencyJob);
                 if (!planSucceeded)
                 {
-                    jobManager.ReleaseJob(emergencyJob);
+                    jobManager.BlockJob(emergencyJob, Crew.Id, "Breach repair preconditions unavailable");
                     emergencyPlanFailed = true;
                     CurrentActivity = "Unable to meet preconditions for breach repair";
                 }
@@ -388,7 +390,7 @@ public sealed class CrewAI
         {
             if (!PlanConstructionPrerequisites(jobManager, emergencyJob))
             {
-                jobManager.ReleaseJob(emergencyJob);
+                jobManager.BlockJob(emergencyJob, Crew.Id, "Construction materials unavailable");
                 emergencyPlanFailed = true;
                 CurrentActivity = "Waiting for construction materials";
             }
@@ -403,7 +405,7 @@ public sealed class CrewAI
         {
             if (!PlanDeconstructionPrerequisites(jobManager, emergencyJob))
             {
-                jobManager.ReleaseJob(emergencyJob);
+                jobManager.BlockJob(emergencyJob, Crew.Id, "Deconstruction tool unavailable");
                 emergencyPlanFailed = true;
                 CurrentActivity = "Waiting for welding torch to deconstruct";
             }
@@ -615,6 +617,7 @@ public sealed class CrewAI
         IReadOnlyList<CrewAI>? allCrew,
         List<Machine>? machines)
     {
+        jobManager.BeginJob(CurrentJob!);
         switch (CurrentJob!.Type)
         {
             case JobType.FetchItem:
@@ -672,6 +675,8 @@ public sealed class CrewAI
         var item = CurrentJob!.TargetItem;
         if (item == null || item.IsCarried)
         {
+            if (jobManager.ActiveJobs.Contains(CurrentJob))
+                jobManager.CompleteJob(CurrentJob);
             CurrentJob = null;
             return;
         }
@@ -679,9 +684,12 @@ public sealed class CrewAI
         int dist = Math.Abs(Crew.Position.X - item.Position.X) + Math.Abs(Crew.Position.Y - item.Position.Y);
         if (dist <= 1)
         {
+            var fetchJob = CurrentJob;
             item.ReservedByCrewId = null;
             Crew.PickUp(item);
             jobManager.RemoveItem(item);
+            if (jobManager.ActiveJobs.Contains(fetchJob))
+                jobManager.CompleteJob(fetchJob);
             CurrentActivity = $"Picked up {item.Name}";
             CurrentJob = null;
             return;
@@ -692,7 +700,8 @@ public sealed class CrewAI
         {
             RecordNavigationFailure(routeResult, item.Position, jobManager);
             item.ReservedByCrewId = null;
-            jobManager.ReleaseJobForRetry(CurrentJob, Crew.Id);
+            jobManager.ReleaseJobForRetry(CurrentJob, Crew.Id,
+                $"No reachable route to {item.Name} ({routeResult.Diagnostic.Reason})");
             CurrentJob = null;
             return;
         }
@@ -929,7 +938,10 @@ public sealed class CrewAI
         }
 
         foreach (var material in plates.Concat(components))
+        {
             Crew.Inventory.Remove(material);
+            jobManager.OnItemConsumed(material);
+        }
 
         if (job.ConstructTileType.HasValue)
         {
@@ -1184,6 +1196,7 @@ public sealed class CrewAI
                 if (plate != null)
                 {
                     Crew.Inventory.Remove(plate);
+                    jobManager.OnItemConsumed(plate);
                 }
 
                 CurrentActivity = $"Repaired breach at {breachCoord}!";
@@ -1492,6 +1505,8 @@ public sealed class CrewAI
 
     private void CompleteAssistance(JobManager jobManager, Job assistanceJob, CrewMember requester, string action)
     {
+        if (assistanceJob.SourceTaskJobId.HasValue)
+            jobManager.ResetJobForRetry(assistanceJob.SourceTaskJobId.Value, requester.Id);
         jobManager.CompleteJob(assistanceJob);
         Crew.Psychology.RegisterHelpedAnotherCrewMember();
         requester.Psychology.RegisterReceivedAssistance();

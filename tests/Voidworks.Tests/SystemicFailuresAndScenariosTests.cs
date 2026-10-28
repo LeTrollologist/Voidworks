@@ -414,7 +414,8 @@ public class SystemicFailuresAndScenariosTests
         Assert.Equal(helperAI.Crew.Position, restoredHelper.Crew.Position);
         Assert.Null(helperAI.CurrentJob);
         Assert.Null(restoredHelper.CurrentJob);
-        Assert.Equal(team.LeadAI.Crew.Id, team.RepairJob.AssignedCrewId);
+        Assert.Equal(JobState.Completed, team.RepairJob.State);
+        Assert.Null(team.RepairJob.AssignedCrewId);
         Assert.DoesNotContain(team.Plate, team.LeadAI.Crew.Inventory);
         Assert.DoesNotContain(helperAI.Crew.Inventory, item => item.Type is ItemType.SteelPlate or ItemType.WeldingTorch);
 

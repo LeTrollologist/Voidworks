@@ -8,39 +8,46 @@ This roadmap prioritizes a reliable, understandable single-player simulation bef
 
 Build a complete playable ship-management loop around autonomous crew, industrial production, life support, and cascading failures. Keep `Voidworks.Sim` headless and testable; keep rendering and input in the engine/game layers.
 
+Simulation update ordering, job lifecycle and retry rules, invariant checks, save-format compatibility, and known limitations are documented in [`docs/simulation-contract.md`](docs/simulation-contract.md).
+
+## Recent Progress
+
+- **2026-10-27:** Baseline re-established at 96 passing tests. Jobs now have explicit lifecycle states, full reservation release, bounded retry/backoff, and a bounded event history; development invariants cover ownership, references, and placement; saves use format v3 with backward migration; all six scenarios have headless smoke and long-run coverage. The rules are documented in [`docs/simulation-contract.md`](docs/simulation-contract.md).
+
+
 ## Phase 0: Establish a Reliable Baseline
 
-- [ ] Run `dotnet restore`, `dotnet build`, and `dotnet test` on a clean .NET 10 environment.
-- [ ] Record the baseline test results and fix current failures before adding features.
-- [ ] Add a repeatable headless smoke-test command for every shipped scenario.
-- [ ] Add long-run tests for stuck jobs, invalid state, resource drift, and crew survival.
+- [x] Run `dotnet restore`, `dotnet build`, and `dotnet test` on a clean .NET 10 environment.
+- [x] Record the baseline test results and fix current failures before adding features.
+- [x] Add a repeatable headless smoke-test command for every shipped scenario.
+- [x] Add long-run tests for stuck jobs, invalid state, resource drift, and crew survival.
 - [ ] Profile simulation tick cost and rendering separately on a larger ship.
-- [ ] Document known limitations and the currently supported save version.
+- [x] Document known limitations and the currently supported save version.
 
 **Exit criteria:** clean build; passing tests; all scenarios start, advance, and terminate correctly; failures can be reproduced.
 
 ## Phase 1: Simulation Correctness and Observability
 
 ### Jobs and crew
-- [ ] Formalize job states: queued, reserved, active, blocked, failed, cancelled, completed.
-- [ ] Ensure every exit path releases job, item, tool, and target reservations.
-- [ ] Add bounded retry/backoff for unreachable targets, missing materials, and failed work.
-- [ ] Verify interruption, death, incapacity, and hazard retreat do not strand jobs.
-- [ ] Test multiple crew competing for jobs, items, tools, and construction tasks.
-- [ ] Add stable explanations for idle, blocked, unsafe, and failed crew decisions.
+- [x] Formalize job states: queued, reserved, active, blocked, failed, cancelled, completed.
+- [x] Ensure every exit path releases job, item, tool, and target reservations.
+- [x] Add bounded retry/backoff for unreachable targets, missing materials, and failed work.
+- [x] Verify interruption, death, incapacity, and hazard retreat do not strand jobs.
+- [x] Test multiple crew competing for jobs, items, tools, and construction tasks.
+- [x] Add stable explanations for idle, blocked, unsafe, and failed crew decisions.
 
 ### World invariants
-- [ ] Add development checks for duplicate item ownership, stale references, invalid machine placement, and orphaned jobs.
+- [x] Add development checks for duplicate item ownership, stale references, invalid machine placement, and orphaned jobs.
 - [ ] Validate utility connections, room boundaries, doors, and occupied tiles after world changes.
-- [ ] Add event history for major state changes and failure causes.
-- [ ] Test save/load continuation against uninterrupted simulation runs.
-- [ ] Test malformed, incomplete, and older-version save files; define migration behavior.
+- [x] Add event history for major state changes and failure causes.
+- [x] Test save/load continuation against uninterrupted simulation runs.
+- [x] Test malformed, incomplete, and older-version save files; define migration behavior.
 
 ### Simulation timing
-- [ ] Document update ordering and when crew actions affect other crew in the same tick.
-- [ ] Define stable ordering where it affects outcomes.
-- [ ] Test pause, speed changes, frame stalls, and exact headless tick counts.
-- [ ] Document that cross-platform bit-for-bit determinism is not currently guaranteed.
+- [x] Document update ordering and when crew actions affect other crew in the same tick.
+- [x] Define stable ordering where it affects outcomes.
+- [x] Test pause, speed changes, frame stalls, and exact headless tick counts.
+- [x] Document that cross-platform bit-for-bit determinism is not currently guaranteed.
 
 **Exit criteria:** long-running headless simulations remain valid; jobs recover from failures; save/load preserves meaningful behavior.
 
