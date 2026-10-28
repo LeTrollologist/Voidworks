@@ -207,21 +207,7 @@ The passing-test count describes the reported development milestone and is not a
 
 ## Roadmap
 
-The roadmap is iterative and may change as systems are validated.
-
-- [x] Tile-based ship and atmosphere simulation foundations
-- [x] Crew physiology, pathfinding, and prioritized job handling
-- [x] Autonomous equipment retrieval and breach-repair workflow
-- [x] Initial mining, ore processing, plumbing, and hydroponics systems
-- [x] Engineering overlays and system inspection
-- [x] Expand and validate electrical grid behavior, including load distribution and brownouts
-- [x] Add more cross-system failure and recovery tests
-- [x] Improve multi-crew coordination and work scheduling
-- [x] Add versioned save/load and fixed-tick scenario replay controls
-- [x] Add an initial crew construction and manufacturing progression loop
-- [x] Evaluate multiplayer readiness after reviewing simulation state and update ownership
-- [x] Continue expanding construction, manufacturing, mining, and ship progression
-- [ ] Mature simulation command boundaries and replay guarantees before implementing multiplayer
+The roadmap is iterative and may change as systems are validated. The roadmap can be found [here](https://github.com/LeTrollologist/Voidworks/blob/main/roadmap.md).
 
 ## Contributing
 
