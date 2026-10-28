@@ -46,6 +46,10 @@ public sealed class SimulationState
     public IReadOnlyList<SimulationInvariantViolation> ValidateInvariants()
         => SimulationInvariants.Validate(this);
 
+    /// <summary>Recent player-facing alerts derived from the event history.</summary>
+    public IReadOnlyList<SimulationAlert> GetAlerts(int capacity = SimulationAlertFeed.DefaultCapacity)
+        => SimulationAlertFeed.Build(Events.Recent, capacity);
+
     /// <summary>
     /// Applies a validated player command between fixed ticks. Every outcome is
     /// returned to the caller and appended to the event history, so rejected

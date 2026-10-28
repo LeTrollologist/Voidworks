@@ -24,6 +24,9 @@ public sealed class InspectionPanel
 
     private string _persistenceStatus = "Save file: Local AppData\\Voidworks\\ship-save.json";
     private string _commandStatus = string.Empty;
+    private readonly SimulationDebugPanel _debugPanel = new();
+    private bool _showDebugPanel;
+    private bool _showAlertsPanel = true;
     public bool LoadRequested { get; private set; }
 
     public void Render(
@@ -38,6 +41,10 @@ public sealed class InspectionPanel
         RenderControlToolbar(sim, ref overlayMode);
         RenderInspectorSidebar(sim, selectedTile, selectedCrew, ref selectedMachine);
         RenderCrewPathDebugPanel(sim);
+        if (_showDebugPanel)
+            _debugPanel.RenderDebug(sim);
+        if (_showAlertsPanel)
+            _debugPanel.RenderAlerts(sim);
     }
 
     private void RenderTopTelemetryBar(SimulationState sim)
@@ -155,6 +162,11 @@ public sealed class InspectionPanel
             if (ImGui.RadioButton("Hazards", overlayMode == OverlayMode.Hazards)) overlayMode = OverlayMode.Hazards;
             ImGui.SameLine();
             if (ImGui.RadioButton("Crew Paths", overlayMode == OverlayMode.CrewPaths)) overlayMode = OverlayMode.CrewPaths;
+
+            ImGui.SameLine(900f);
+            if (ImGui.Button(" Debug ")) _showDebugPanel = !_showDebugPanel;
+            ImGui.SameLine();
+            if (ImGui.Button(" Alerts ")) _showAlertsPanel = !_showAlertsPanel;
 
             ImGui.SameLine(1085f);
             if (ImGui.Button(" TRIGGER BREACH "))

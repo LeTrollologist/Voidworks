@@ -125,6 +125,9 @@ be valid:
 
 - duplicate item ownership, carried-flag mismatches, stale item reservations
 - duplicate or out-of-bounds crew, items, machines, and cables
+- crew standing on non-walkable tiles
+- cables and pipes placed on space or asteroid tiles
+- doors without an adjacent walkable tile, or with an unknown state
 - duplicate machine tiles, machines on space/asteroid tiles, invalid machine state
 - duplicate job ids, terminal jobs left on the board, orphaned active jobs,
   reserved jobs without assignees, jobs assigned to missing/unavailable crew,
@@ -134,6 +137,13 @@ be valid:
 Enable `SimulationState.InvariantChecksEnabled` to validate at the end of every
 tick; violations throw `SimulationInvariantException`. Tests and long headless runs
 enable this. Normal play leaves it off.
+
+`SimulationState.GetAlerts` converts the recent event history into a bounded,
+player-facing feed (`SimulationAlertFeed`). Crew deaths, crew incapacitation, and
+failed jobs are critical; blocked jobs and rejected commands are warnings; retry
+scheduling is informational. The engine renders this feed in the Alerts window and
+exposes jobs, reservations, routes, utilities, and machine state in the Simulation
+Debug window.
 
 ## Save format
 

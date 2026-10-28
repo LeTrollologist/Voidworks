@@ -58,7 +58,14 @@ public static class SimulationInvariants
             if (!crewIds.Add(crew.Id))
                 Report("DuplicateCrewId", $"Crew member '{crew.Name}' shares id {crew.Id} with another crew member.");
             if (!sim.Grid.IsInBounds(crew.Position))
+            {
                 Report("CrewOutOfBounds", $"Crew member '{crew.Name}' is outside the ship grid at {crew.Position}.");
+            }
+            else if (sim.Grid[crew.Position].Type is not (TileType.Floor or TileType.Door))
+            {
+                Report("CrewOnInvalidTile",
+                    $"Crew member '{crew.Name}' is standing on {sim.Grid[crew.Position].Type} at {crew.Position}.");
+            }
             if (crew.AssignedBunkCoord.HasValue && !sim.Grid.IsInBounds(crew.AssignedBunkCoord.Value))
                 Report("BunkOutOfBounds", $"Crew member '{crew.Name}' has an out-of-bounds bunk.");
 
@@ -183,7 +190,55 @@ public static class SimulationInvariants
         foreach (GridCoord cable in sim.Cables)
         {
             if (!sim.Grid.IsInBounds(cable))
+            {
                 Report("CableOutOfBounds", $"Power cable at {cable} is outside the ship grid.");
+                continue;
+            }
+
+            if (sim.Grid[cable].Type is TileType.Space or TileType.Asteroid)
+                Report("UtilityOnInvalidTile",
+                    $"Power cable at {cable} is installed on {sim.Grid[cable].Type}.");
+        }
+
+        foreach (GridCoord pipe in sim.PlumbingSolver.CoolantPipes)
+        {
+            if (!sim.Grid.IsInBounds(pipe))
+            {
+                Report("PipeOutOfBounds", $"Coolant pipe at {pipe} is outside the ship grid.");
+                continue;
+            }
+
+            if (sim.Grid[pipe].Type is TileType.Space or TileType.Asteroid)
+                Report("UtilityOnInvalidTile",
+                    $"Coolant pipe at {pipe} is installed on {sim.Grid[pipe].Type}.");
+        }
+
+        foreach (GridCoord pipe in sim.PlumbingSolver.PropellantPipes)
+        {
+            if (!sim.Grid.IsInBounds(pipe))
+            {
+                Report("PipeOutOfBounds", $"Propellant pipe at {pipe} is outside the ship grid.");
+                continue;
+            }
+
+            if (sim.Grid[pipe].Type is TileType.Space or TileType.Asteroid)
+                Report("UtilityOnInvalidTile",
+                    $"Propellant pipe at {pipe} is installed on {sim.Grid[pipe].Type}.");
+        }
+
+        // Doors must connect to walkable space; an isolated door in the hull is
+        // never traversable and usually indicates a malformed world change.
+        foreach (ShipTile tile in sim.Grid.AllTiles().Where(candidate => candidate.Type == TileType.Door))
+        {
+            if (!Enum.IsDefined(typeof(DoorState), tile.DoorState))
+                Report("InvalidDoorState",
+                    $"Door at {tile.Coord} has an unknown state value {(int)tile.DoorState}.");
+
+            bool hasWalkableNeighbor = sim.Grid.GetCardinalNeighbors(tile.Coord)
+                .Any(neighbor => neighbor.Type is TileType.Floor or TileType.Door);
+            if (!hasWalkableNeighbor)
+                Report("DoorWithoutWalkableNeighbor",
+                    $"Door at {tile.Coord} has no adjacent floor or door tile.");
         }
     }
 
