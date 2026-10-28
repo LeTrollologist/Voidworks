@@ -15,7 +15,8 @@ public enum SimulationEventKind
     CrewDied,
     CrewIncapacitated,
     CommandApplied,
-    CommandRejected
+    CommandRejected,
+    MaterialReturned
 }
 
 /// <summary>

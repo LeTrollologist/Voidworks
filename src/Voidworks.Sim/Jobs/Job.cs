@@ -44,6 +44,11 @@ public sealed class Job
     /// <summary>Simulation time before which the job must not be claimed again.</summary>
     public double RetryNotBeforeSimTime { get; private set; }
 
+    private readonly List<Guid> _reservedMaterialIds = new();
+
+    /// <summary>Items reserved for this job's construction materials and tools.</summary>
+    public IReadOnlyList<Guid> ReservedMaterialIds => _reservedMaterialIds;
+
     public bool IsTerminal => State.IsTerminal();
 
     // Legacy flags are derived from State so existing callers keep working while
@@ -195,6 +200,29 @@ public sealed class Job
         AssignedCrewId = null;
         State = JobState.Queued;
     }
+
+    internal void AddReservedMaterial(Guid itemId)
+    {
+        if (itemId == Guid.Empty)
+            throw new ArgumentException("Reserved item identity must not be empty.", nameof(itemId));
+        if (!_reservedMaterialIds.Contains(itemId))
+            _reservedMaterialIds.Add(itemId);
+    }
+
+    internal void ClearReservedMaterials() => _reservedMaterialIds.Clear();
+
+    internal void RestoreReservedMaterials(IEnumerable<Guid> itemIds)
+    {
+        _reservedMaterialIds.Clear();
+        foreach (Guid id in itemIds.Distinct())
+        {
+            if (id == Guid.Empty)
+                throw new ArgumentException("Reserved item identity must not be empty.", nameof(itemIds));
+            _reservedMaterialIds.Add(id);
+        }
+    }
+
+    public bool IsMaterialReserved(Guid itemId) => _reservedMaterialIds.Contains(itemId);
 
     public bool CanBeClaimedAt(double simTime)
         => !IsTerminal && simTime >= RetryNotBeforeSimTime;

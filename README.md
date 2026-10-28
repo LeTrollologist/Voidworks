@@ -27,6 +27,8 @@ The goal is a simulation where machinery, resources, atmosphere, and people depe
 - Crew delivery jobs move processor inputs to the machines that need them, replenish hydroponics water reservoirs, and refuel propellant tanks.
 - Construction orders let crew build hull panels, floors, interior partition walls, bulkhead doors, and machinery from steel plates and machine components. Construction requires a welding torch; machines must be installed on an unused floor tile.
 - Deconstruction orders let crew dismantle machinery and strip walls, doors, floors, or hull panels with a welding torch to reclaim structural steel and machine components.
+- Construction orders reserve their required plates, components, and welding torch; cancelled or failed orders return carried consumables to the world and release tool reservations for other orders.
+
 - Player actions are validated simulation commands for construction, utilities, machine controls, doors, job priority and cancellation, and coolant transfer; rejected actions return explicit failure codes and are recorded in the event history.
 - A player-facing alert feed (critical, warning, informational) is derived from simulation events, and a debug panel exposes active jobs, reservations, crew routes, utility flow, and machine state.
 
@@ -204,7 +206,7 @@ Focused headless scenario sweep:
 dotnet test --filter FullyQualifiedName~ScenarioSmokeTests
 ```
 
-Every shipped scenario starts from a shared fixture, runs for 30 simulated seconds, and a long-run variant advances until the scenario terminates with invariant checks enabled on every tick. Simulation update ordering, the job lifecycle and retry policy, development invariants, save format version 3, and known limitations are documented in [docs/simulation-contract.md](docs/simulation-contract.md).
+Every shipped scenario starts from a shared fixture, runs for 30 simulated seconds, and a long-run variant advances until the scenario terminates with invariant checks enabled on every tick. Simulation update ordering, the job lifecycle and retry policy, development invariants, save format version 4, and known limitations are documented in [docs/simulation-contract.md](docs/simulation-contract.md).
 
 The passing-test count describes the reported development milestone and is not a guarantee that every future commit will pass. Run the tests against the revision you have checked out.
 

@@ -68,6 +68,10 @@ Rules:
 - If a target item is removed from the world or consumed by construction/breach
   repair, jobs targeting it are cancelled with an explanatory event. Carried items
   remain valid targets because their owner can still deliver them.
+- Construction orders reserve the exact plates, components, and welding torch they
+  plan to use. Completing the order consumes the materials; cancelling or failing
+  it releases the reservations and drops carried plates/components at the holder's
+  position so another order can reuse them. Tools stay with the crew.
 
 ### Retry and backoff
 
@@ -126,8 +130,10 @@ be valid:
 - duplicate item ownership, carried-flag mismatches, stale item reservations
 - duplicate or out-of-bounds crew, items, machines, and cables
 - crew standing on non-walkable tiles
-- cables and pipes placed on space or asteroid tiles
+- cables and pipes placed on space or asteroid tiles, or isolated from machines and
+  other utility tiles
 - doors without an adjacent walkable tile, or with an unknown state
+- walkable tiles that open directly onto space (incomplete hull boundary)
 - duplicate machine tiles, machines on space/asteroid tiles, invalid machine state
 - duplicate job ids, terminal jobs left on the board, orphaned active jobs,
   reserved jobs without assignees, jobs assigned to missing/unavailable crew,
@@ -147,14 +153,15 @@ Debug window.
 
 ## Save format
 
-`SimulationSerializer.CurrentSaveFormatVersion` is **3**.
+`SimulationSerializer.CurrentSaveFormatVersion` is **4**.
 
-- Version 0 (legacy, no explicit version), 1, and 2 remain readable.
+- Version 0 (legacy, no explicit version), 1, 2, and 3 remain readable.
 - Version 3 adds job `State`, `FailedAttempts`, `LastFailureReason`, `BlockedReason`,
   and `RetryNotBeforeSimTime`.
+- Version 4 adds job material/tool reservations (`ReservedMaterialIds`).
 - Older saves migrate by deriving state from the legacy completion flags and
-  resetting retry bookkeeping; jobs in old saves therefore load as `Queued` unless
-  they were completed or cancelled.
+  resetting retry bookkeeping and material reservations; jobs in old saves therefore
+  load as `Queued` unless they were completed or cancelled.
 - Versions newer than the build are rejected with `NotSupportedException`.
 - Loading validates grid bounds and tile-count limits, enum values, finite and
   non-negative numeric ranges, id uniqueness, item ownership, crew/job references,
@@ -172,8 +179,8 @@ and fixed-tick remainder.
   separately from simulation cost.
 - Debug-only breach creation and patching bypass the command layer; all other
   player actions are validated commands.
-- Room topology, door reachability, and utility-network invariants are not yet
-  validated after world changes; only bounds and machine placement are checked.
+- Room and utility invariants cover hull openings, door connectivity, and
+  machine/pipe adjacency, but not full room reachability or production-network flow.
 - Tools are ordinary inventory items; there is no separate tool-reservation table.
 
 ## Running the checks

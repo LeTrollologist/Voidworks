@@ -57,15 +57,18 @@ public class ScenarioSmokeTests
             var machine = new Machine(type, new GridCoord(x, y));
             if (type == MachineType.Battery)
                 machine.BatteryStoredKWh = 25.0;
+            if (type == MachineType.MiningLaser)
+                machine.MiningRange = 12;
             sim.Machines.Add(machine);
             sim.Cables.Add(new GridCoord(x, y));
             if (type == MachineType.Reactor)
                 sim.PlumbingSolver.CoolantPipes.Add(new GridCoord(x, y));
         }
 
-        grid[7, 4].Type = TileType.Asteroid;
-        grid[7, 4].AsteroidIronOre = 6;
-        grid[7, 4].AsteroidIceOre = 4;
+        // Asteroids live outside the pressure hull; depleted deposits become space.
+        grid[0, 3].Type = TileType.Asteroid;
+        grid[0, 3].AsteroidIronOre = 6;
+        grid[0, 3].AsteroidIceOre = 4;
 
         sim.Crew.Add(new CrewAI(new CrewMember("Scenario Engineer", new GridCoord(6, 6), "Engineer")));
         sim.Crew.Add(new CrewAI(new CrewMember("Scenario Medic", new GridCoord(7, 6), "Medic")));

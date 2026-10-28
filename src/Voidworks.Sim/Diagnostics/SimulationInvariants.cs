@@ -198,6 +198,9 @@ public static class SimulationInvariants
             if (sim.Grid[cable].Type is TileType.Space or TileType.Asteroid)
                 Report("UtilityOnInvalidTile",
                     $"Power cable at {cable} is installed on {sim.Grid[cable].Type}.");
+            else if (!HasUtilityConnection(sim, cable, sim.Cables))
+                Report("UtilityWithoutConnection",
+                    $"Power cable at {cable} is isolated from machines and other cables.");
         }
 
         foreach (GridCoord pipe in sim.PlumbingSolver.CoolantPipes)
@@ -211,6 +214,9 @@ public static class SimulationInvariants
             if (sim.Grid[pipe].Type is TileType.Space or TileType.Asteroid)
                 Report("UtilityOnInvalidTile",
                     $"Coolant pipe at {pipe} is installed on {sim.Grid[pipe].Type}.");
+            else if (!HasUtilityConnection(sim, pipe, sim.PlumbingSolver.CoolantPipes))
+                Report("UtilityWithoutConnection",
+                    $"Coolant pipe at {pipe} is isolated from machines and other coolant pipes.");
         }
 
         foreach (GridCoord pipe in sim.PlumbingSolver.PropellantPipes)
@@ -224,6 +230,9 @@ public static class SimulationInvariants
             if (sim.Grid[pipe].Type is TileType.Space or TileType.Asteroid)
                 Report("UtilityOnInvalidTile",
                     $"Propellant pipe at {pipe} is installed on {sim.Grid[pipe].Type}.");
+            else if (!HasUtilityConnection(sim, pipe, sim.PlumbingSolver.PropellantPipes))
+                Report("UtilityWithoutConnection",
+                    $"Propellant pipe at {pipe} is isolated from machines and other fuel lines.");
         }
 
         // Doors must connect to walkable space; an isolated door in the hull is
@@ -240,7 +249,23 @@ public static class SimulationInvariants
                 Report("DoorWithoutWalkableNeighbor",
                     $"Door at {tile.Coord} has no adjacent floor or door tile.");
         }
+
+        // Room boundaries: a floor or door that touches space directly means the
+        // pressure hull is incomplete around a walkable area.
+        foreach (ShipTile tile in sim.Grid.AllTiles()
+                     .Where(candidate => candidate.Type is TileType.Floor or TileType.Door))
+        {
+            bool touchesSpace = tile.Coord.Cardinals()
+                .Any(neighbor => sim.Grid.IsInBounds(neighbor) && sim.Grid[neighbor].Type == TileType.Space);
+            if (touchesSpace)
+                Report("RoomOpensToSpace",
+                    $"{tile.Type} at {tile.Coord} is open to space; the hull boundary is incomplete.");
+        }
     }
+
+    private static bool HasUtilityConnection(SimulationState sim, GridCoord coord, HashSet<GridCoord> network)
+        => sim.Machines.Any(machine => machine.Position == coord) ||
+           coord.Cardinals().Any(neighbor => sim.Grid.IsInBounds(neighbor) && network.Contains(neighbor));
 
     private static bool IsHeldByAnyCrew(SimulationState sim, Job job)
         => sim.Crew.Any(agent =>

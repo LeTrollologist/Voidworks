@@ -12,7 +12,7 @@ Simulation update ordering, job lifecycle and retry rules, invariant checks, sav
 
 ## Recent Progress
 
-- **2026-10-27:** Baseline re-established at 113 passing tests. Jobs now have explicit lifecycle states, full reservation release, bounded retry/backoff, and a bounded event history; development invariants cover ownership, references, placement, door connectivity, and utility placement; saves use format v3 with backward migration; all six scenarios have headless smoke and long-run coverage; player actions flow through validated commands with explicit failure codes; and the engine now exposes a player-facing alert feed plus a simulation debug view. The rules are documented in [`docs/simulation-contract.md`](docs/simulation-contract.md).
+- **2026-10-27:** Baseline re-established at 121 passing tests. Jobs now have explicit lifecycle states, full reservation release, bounded retry/backoff, and a bounded event history; construction orders reserve materials and return them on cancellation or failure; development invariants cover ownership, placement, door connectivity, room boundaries, and utility connectivity; saves use format v4 with backward migration; all six scenarios plus the full industrial chain have headless smoke and long-run coverage; player actions flow through validated commands with explicit failure codes; and the engine exposes a player-facing alert feed plus a simulation debug view. The rules are documented in [`docs/simulation-contract.md`](docs/simulation-contract.md).
 
 
 ## Phase 0: Establish a Reliable Baseline
@@ -38,7 +38,7 @@ Simulation update ordering, job lifecycle and retry rules, invariant checks, sav
 
 ### World invariants
 - [x] Add development checks for duplicate item ownership, stale references, invalid machine placement, and orphaned jobs.
-- [ ] Validate utility connections, room boundaries, doors, and occupied tiles after world changes.
+- [x] Validate utility connections, room boundaries, doors, and occupied tiles after world changes.
 - [x] Add event history for major state changes and failure causes.
 - [x] Test save/load continuation against uninterrupted simulation runs.
 - [x] Test malformed, incomplete, and older-version save files; define migration behavior.
@@ -88,10 +88,10 @@ Simulation update ordering, job lifecycle and retry rules, invariant checks, sav
 
 ## Phase 4: Finish Construction and Industrial Progression
 
-- [ ] Test the complete chain: mine ore/ice, deliver inputs, process materials, fabricate components, and build machinery.
-- [ ] Add automated tests for construction, material consumption, cancellation, and machine placement.
+- [x] Test the complete chain: mine ore/ice, deliver inputs, process materials, fabricate components, and build machinery.
+- [x] Add automated tests for construction, material consumption, cancellation, and machine placement.
 - [ ] Prevent invalid, overlapping, inaccessible, or unsupported construction.
-- [ ] Define material reservation and return rules for cancelled or failed orders.
+- [x] Define material reservation and return rules for cancelled or failed orders.
 - [ ] Add hauling priorities, storage limits, and sensible stockpile behavior.
 - [ ] Add machine condition, damage, maintenance, repair, and deconstruction.
 - [ ] Add recipe validation and clear input/output shortage states.

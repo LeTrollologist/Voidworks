@@ -15,7 +15,7 @@ using Voidworks.Sim.Ship;
 
 namespace Voidworks.Sim;
 
-public sealed class SimulationState
+public sealed class SimulationState : IJobWorldContext
 {
     public ShipGrid Grid { get; }
     public AtmosphereSolver AtmosphereSolver { get; }
@@ -23,6 +23,7 @@ public sealed class SimulationState
     public PlumbingGridSolver PlumbingSolver { get; } = new();
     public JobManager JobManager { get; }
     public List<CrewAI> Crew { get; } = new();
+    IReadOnlyList<CrewAI> IJobWorldContext.Crew => Crew;
     public List<Machine> Machines { get; } = new();
     public HashSet<GridCoord> Cables { get; } = new();
     public Scenario? ActiveScenario { get; set; }
@@ -89,6 +90,7 @@ public sealed class SimulationState
         Grid = grid;
         AtmosphereSolver = solver;
         JobManager = jobManager;
+        JobManager.BindWorld(this);
     }
 
     public void Step(double dt)

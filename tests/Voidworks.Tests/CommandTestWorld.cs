@@ -1,5 +1,6 @@
 using Voidworks.Sim;
 using Voidworks.Sim.Atmosphere;
+using Voidworks.Sim.Crew;
 using Voidworks.Sim.Jobs;
 using Voidworks.Sim.Ship;
 
@@ -11,7 +12,9 @@ internal static class CommandTestWorld
     {
         var grid = new ShipGrid(10, 10);
         grid.BuildRoom(1, 1, 8, 8, TileType.HullWall);
-        return new SimulationState(grid, new AtmosphereSolver(), new JobManager());
+        var sim = new SimulationState(grid, new AtmosphereSolver(), new JobManager());
+        sim.Crew.Add(new CrewAI(new CrewMember("Test Engineer", new GridCoord(3, 3), "Engineer")));
+        return sim;
     }
 
     /// <summary>

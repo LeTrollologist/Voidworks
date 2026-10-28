@@ -16,6 +16,7 @@ public sealed class JobManager
 
     private readonly List<Job> _jobs = new();
     private readonly List<Item> _worldItems = new();
+    private IJobWorldContext? _world;
 
     public JobManager(SimulationEventLog? events = null)
     {
@@ -36,6 +37,8 @@ public sealed class JobManager
             throw new ArgumentOutOfRangeException(nameof(simTime));
         SimTime = simTime;
     }
+
+    internal void BindWorld(IJobWorldContext world) => _world = world;
 
     public void AddItem(Item item) => _worldItems.Add(item);
 
@@ -69,6 +72,83 @@ public sealed class JobManager
         {
             item.ReservedByCrewId = null;
         }
+    }
+
+    /// <summary>
+    /// Reserves a loose or crew-held item for a specific job. Reservations are
+    /// tracked on the job so cancellation and failure can release or return them.
+    /// </summary>
+    public bool TryReserveMaterial(Job job, Item item, Guid crewId)
+    {
+        if (job.IsTerminal)
+            return false;
+        bool reservedByOtherJob = _jobs.Any(other =>
+            other.Id != job.Id && !other.IsTerminal && other.IsMaterialReserved(item.Id));
+        if (reservedByOtherJob)
+            return false;
+        if (item.IsCarried)
+        {
+            bool heldByCrew = _world?.Crew.Any(agent =>
+                agent.Crew.Id == crewId && agent.Crew.Inventory.Contains(item)) ?? false;
+            if (!heldByCrew)
+                return false;
+        }
+        else if (!item.IsAvailable && item.ReservedByCrewId != crewId)
+        {
+            return false;
+        }
+
+        item.ReservedByCrewId = crewId;
+        job.AddReservedMaterial(item.Id);
+        return true;
+    }
+
+    private Item? FindItem(Guid itemId)
+    {
+        Item? worldItem = _worldItems.FirstOrDefault(item => item.Id == itemId);
+        if (worldItem != null)
+            return worldItem;
+
+        return _world?.Crew
+            .SelectMany(agent => agent.Crew.Inventory)
+            .FirstOrDefault(item => item.Id == itemId);
+    }
+
+    /// <summary>
+    /// Clears material/tool reservations for a job. Consumable materials that are
+    /// still carried are dropped at the holder's position and returned to the world
+    /// so another order can use them; tools stay with the crew.
+    /// </summary>
+    private void ReleaseMaterialReservations(Job job, bool returnConsumablesToWorld)
+    {
+        foreach (Guid itemId in job.ReservedMaterialIds.ToList())
+        {
+            Item? item = FindItem(itemId);
+            if (item == null)
+                continue;
+
+            bool reservedByOtherJob = _jobs.Any(other =>
+                other.Id != job.Id && !other.IsTerminal && other.IsMaterialReserved(itemId));
+            if (!reservedByOtherJob)
+                item.ReservedByCrewId = null;
+
+            if (!returnConsumablesToWorld || !item.IsCarried ||
+                item.Type is not (ItemType.SteelPlate or ItemType.MachineComponent))
+            {
+                continue;
+            }
+
+            CrewAI? holder = _world?.Crew.FirstOrDefault(agent => agent.Crew.Inventory.Contains(item));
+            if (holder != null && holder.Crew.Drop(item, holder.Crew.Position))
+            {
+                _worldItems.Add(item);
+                Events.Add(SimTime, SimulationEventKind.MaterialReturned,
+                    $"Returned {item.Name} from cancelled or failed job '{job.Name}' to {holder.Crew.Position}",
+                    job.Id, holder.Crew.Id);
+            }
+        }
+
+        job.ClearReservedMaterials();
     }
 
     public Job? PostAssistanceRequest(
@@ -160,6 +240,7 @@ public sealed class JobManager
             return;
 
         ReleaseItemReservation(job);
+        ReleaseMaterialReservations(job, returnConsumablesToWorld: true);
         job.MarkCancelled();
         _jobs.Remove(job);
         Events.Add(SimTime, SimulationEventKind.JobCancelled,
@@ -173,6 +254,7 @@ public sealed class JobManager
             return;
 
         ReleaseItemReservation(job);
+        ReleaseMaterialReservations(job, returnConsumablesToWorld: false);
         job.MarkCompleted();
         _jobs.Remove(job);
         if (!CompletedJobsHistory.Contains(job))
@@ -226,6 +308,7 @@ public sealed class JobManager
             return;
 
         ReleaseItemReservation(job);
+        ReleaseMaterialReservations(job, returnConsumablesToWorld: false);
         job.TransitionToBlocked(reason);
         Events.Add(SimTime, SimulationEventKind.JobBlocked,
             $"{job.Type} job blocked: {job.Name} ({reason})", job.Id, crewId);
@@ -245,6 +328,7 @@ public sealed class JobManager
         int attempt = job.FailedAttempts + 1;
         double retryDelay = attempt <= 1 ? 0.0 : Math.Min(15.0, 2.0 * (attempt - 1));
         bool exhausted = job.RecordFailure(reason, MaximumAttemptsPerJob, SimTime + retryDelay);
+        ReleaseMaterialReservations(job, returnConsumablesToWorld: exhausted);
         if (exhausted)
         {
             _jobs.Remove(job);
@@ -400,6 +484,7 @@ public sealed class JobManager
             return;
 
         ReleaseItemReservation(job);
+        ReleaseMaterialReservations(job, returnConsumablesToWorld: false);
         job.TransitionToQueued(null);
     }
 
@@ -420,6 +505,7 @@ public sealed class JobManager
             reason ?? "Task attempt could not be completed",
             MaximumAttemptsPerJob,
             SimTime + retryDelay);
+        ReleaseMaterialReservations(job, returnConsumablesToWorld: exhausted);
         if (exhausted)
         {
             _jobs.Remove(job);

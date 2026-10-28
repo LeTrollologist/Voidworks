@@ -19,11 +19,12 @@ namespace Voidworks.Sim.Persistence;
 public static class SimulationSerializer
 {
     /// <summary>
-    /// Current save format. Version 3 adds job lifecycle state, failed-attempt
-    /// counts, blocked reasons, and retry timestamps. Versions 0-2 remain readable;
-    /// their jobs are migrated by deriving state from the legacy completion flags.
+    /// Current save format. Version 3 added job lifecycle state, failed-attempt
+    /// counts, blocked reasons, and retry timestamps. Version 4 adds job material
+    /// and tool reservations. Versions 0-3 remain readable; older jobs migrate with
+    /// no lifecycle bookkeeping or material reservations.
     /// </summary>
-    public const int CurrentSaveFormatVersion = 3;
+    public const int CurrentSaveFormatVersion = 4;
     public const int MinimumSupportedSaveFormatVersion = 0;
     private const long MaximumSavedGridTileCount = 1_000_000;
 
@@ -683,6 +684,8 @@ public static class SimulationSerializer
         {
             if (job.TargetItemId.HasValue && !itemIds.Contains(job.TargetItemId.Value))
                 throw new InvalidDataException($"Job '{job.Name}' references a missing item.");
+            if (job.ReservedMaterialIds != null && job.ReservedMaterialIds.Any(id => !itemIds.Contains(id)))
+                throw new InvalidDataException($"Job '{job.Name}' references a missing reserved item.");
             if (job.AssignedCrewId.HasValue && !crewIds.Contains(job.AssignedCrewId.Value))
                 throw new InvalidDataException($"Job '{job.Name}' references a missing assigned crew member.");
             if (job.TargetCrewId.HasValue && !crewIds.Contains(job.TargetCrewId.Value))
@@ -811,6 +814,11 @@ public static class SimulationSerializer
             throw new InvalidDataException($"Job '{job.Name}' contains an unknown assistance item type.");
         if (job.RequiredSteelPlates < 0 || job.RequiredMachineComponents < 0)
             throw new InvalidDataException($"Job '{job.Name}' contains negative construction costs.");
+        if (job.ReservedMaterialIds == null)
+            throw new InvalidDataException($"Job '{job.Name}' contains a missing material reservation list.");
+        if (job.ReservedMaterialIds.Any(id => id == Guid.Empty) ||
+            job.ReservedMaterialIds.Distinct().Count() != job.ReservedMaterialIds.Count)
+            throw new InvalidDataException($"Job '{job.Name}' contains invalid material reservations.");
         if (job.Type == JobType.Construct)
         {
             if (job.ConstructTileType.HasValue == job.ConstructMachineType.HasValue ||
@@ -944,7 +952,8 @@ public static class SimulationSerializer
         FailedAttempts = job.FailedAttempts,
         LastFailureReason = job.LastFailureReason,
         BlockedReason = job.BlockedReason,
-        RetryNotBeforeSimTime = job.RetryNotBeforeSimTime
+        RetryNotBeforeSimTime = job.RetryNotBeforeSimTime,
+        ReservedMaterialIds = job.ReservedMaterialIds.ToList()
     };
 
     private static Job ResolveJob(
@@ -989,6 +998,8 @@ public static class SimulationSerializer
             saveFormatVersion >= 3 ? dto.LastFailureReason : null,
             saveFormatVersion >= 3 ? dto.BlockedReason : null,
             saveFormatVersion >= 3 ? dto.RetryNotBeforeSimTime : 0.0);
+        job.RestoreReservedMaterials(
+            saveFormatVersion >= 4 ? dto.ReservedMaterialIds : Array.Empty<Guid>());
 
         job.AssistanceItemTypes.AddRange(dto.AssistanceItemTypes);
         job.FailedAssistantCrewIds.AddRange(dto.FailedAssistantCrewIds);
@@ -1204,12 +1215,15 @@ public sealed class JobSaveDto
     public bool IsCompleted { get; set; }
     public bool IsCancelled { get; set; }
 
-    // Version 3 lifecycle fields. Defaults keep versions 0-2 readable.
+    // Version 3 lifecycle fields. Defaults keep versions 0-3 readable.
     public JobState State { get; set; } = JobState.Queued;
     public int FailedAttempts { get; set; }
     public string? LastFailureReason { get; set; }
     public string? BlockedReason { get; set; }
     public double RetryNotBeforeSimTime { get; set; }
+
+    // Version 4 material/tool reservations.
+    public List<Guid> ReservedMaterialIds { get; set; } = new();
 }
 
 public sealed class ScenarioObjectiveSaveDto

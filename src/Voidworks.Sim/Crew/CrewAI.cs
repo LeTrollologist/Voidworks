@@ -542,16 +542,48 @@ public sealed class CrewAI
             return false;
         }
 
+        var reservedItems = new List<Item>();
         foreach (var item in itemsToFetch)
         {
-            item.ReservedByCrewId = Crew.Id;
-            _subJobs.Enqueue(Job.CreateFetchItem(item, priority: 35));
+            if (jobManager.TryReserveMaterial(constructionJob, item, Crew.Id))
+            {
+                reservedItems.Add(item);
+            }
+            else
+            {
+                missingTypes.Add(item.Type);
+                missingResources.Add($"{item.Type} (already reserved)");
+            }
         }
         if (torch != null)
         {
-            torch.ReservedByCrewId = Crew.Id;
-            _subJobs.Enqueue(Job.CreateFetchItem(torch, priority: 35));
+            if (jobManager.TryReserveMaterial(constructionJob, torch, Crew.Id))
+            {
+                reservedItems.Add(torch);
+            }
+            else
+            {
+                missingTypes.Add(ItemType.WeldingTorch);
+                missingResources.Add("welding torch (already reserved)");
+            }
         }
+
+        if (missingResources.Count > 0)
+        {
+            RecordTaskFailure(new CrewDecisionDiagnostic(
+                CrewDiagnosticReason.ResourceUnavailable,
+                constructionJob.TargetCoord,
+                Crew.Position,
+                null,
+                $"Required for construction: {string.Join(", ", missingResources)}."),
+                constructionJob,
+                jobManager,
+                missingTypes);
+            return false;
+        }
+
+        foreach (var item in reservedItems)
+            _subJobs.Enqueue(Job.CreateFetchItem(item, priority: 35));
         _subJobs.Enqueue(constructionJob);
         return true;
 
@@ -604,7 +636,20 @@ public sealed class CrewAI
             return false;
         }
 
-        torch.ReservedByCrewId = Crew.Id;
+        if (!jobManager.TryReserveMaterial(deconstructJob, torch, Crew.Id))
+        {
+            RecordTaskFailure(new CrewDecisionDiagnostic(
+                CrewDiagnosticReason.ResourceUnavailable,
+                deconstructJob.TargetCoord,
+                Crew.Position,
+                null,
+                "The welding torch is already reserved by another order."),
+                deconstructJob,
+                jobManager,
+                [ItemType.WeldingTorch]);
+            return false;
+        }
+
         _subJobs.Enqueue(Job.CreateFetchItem(torch, priority: 35));
         _subJobs.Enqueue(deconstructJob);
         return true;
@@ -915,10 +960,14 @@ public sealed class CrewAI
             return;
         }
 
-        var plates = Crew.Inventory.Where(item => item.Type == ItemType.SteelPlate)
-            .Take(job.RequiredSteelPlates).ToList();
-        var components = Crew.Inventory.Where(item => item.Type == ItemType.MachineComponent)
-            .Take(job.RequiredMachineComponents).ToList();
+        var plates = SelectMaterials(ItemType.SteelPlate, job.RequiredSteelPlates);
+        var components = SelectMaterials(ItemType.MachineComponent, job.RequiredMachineComponents);
+
+        List<Item> SelectMaterials(ItemType type, int count)
+            => Crew.Inventory.Where(item => item.Type == type)
+                .OrderByDescending(item => job.IsMaterialReserved(item.Id))
+                .Take(count)
+                .ToList();
         if (plates.Count != job.RequiredSteelPlates || components.Count != job.RequiredMachineComponents ||
             !Crew.HasItem(ItemType.WeldingTorch))
         {

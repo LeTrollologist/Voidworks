@@ -6,6 +6,7 @@ using Voidworks.Sim.Commands;
 using Voidworks.Sim.Crew;
 using Voidworks.Sim.Diagnostics;
 using Voidworks.Sim.Jobs;
+using Voidworks.Sim.Machinery;
 using Voidworks.Sim.Ship;
 using Xunit;
 
@@ -36,6 +37,34 @@ public class WorldTopologyAndAlertTests
         var violations = sim.ValidateInvariants();
 
         Assert.Contains(violations, violation => violation.Code == "DoorWithoutWalkableNeighbor");
+    }
+
+    [Fact]
+    public void IsolatedUtility_IsReported_ButMachineAttachedIsNot()
+    {
+        SimulationState sim = CommandTestWorld.Create();
+        var isolated = new GridCoord(4, 4);
+        sim.Cables.Add(isolated);
+
+        Assert.Contains(sim.ValidateInvariants(),
+            violation => violation.Code == "UtilityWithoutConnection");
+
+        var machineTile = new GridCoord(5, 4);
+        sim.Machines.Add(new Machine(MachineType.Battery, machineTile));
+        sim.Cables.Add(machineTile);
+
+        Assert.DoesNotContain(sim.ValidateInvariants(), violation =>
+            violation.Code == "UtilityWithoutConnection" && violation.Message.Contains(machineTile.ToString()));
+    }
+
+    [Fact]
+    public void WalkableTile_OpenToSpace_IsReported()
+    {
+        SimulationState sim = CommandTestWorld.Create();
+        sim.Grid[8, 3].Type = TileType.Space;
+
+        Assert.Contains(sim.ValidateInvariants(),
+            violation => violation.Code == "RoomOpensToSpace");
     }
 
     [Fact]
