@@ -3,6 +3,7 @@ using System.Linq;
 using Voidworks.Sim;
 using Voidworks.Sim.Commands;
 using Voidworks.Sim.Diagnostics;
+using Voidworks.Sim.Jobs;
 using Voidworks.Sim.Machinery;
 using Voidworks.Sim.Ship;
 using Xunit;
@@ -74,6 +75,26 @@ public class CommandLayerControlTests
         var missing = sim.ExecuteCommand(new CancelJobCommand(jobId));
         Assert.False(missing.Success);
         Assert.Equal("JobNotFound", missing.FailureCode);
+    }
+
+    [Fact]
+    public void ReassignJob_ReleasesAssigneeAndReturnsToQueue()
+    {
+        SimulationState sim = CommandTestWorld.Create();
+        GridCoord target = CommandTestWorld.OpenHullTile(sim);
+        var build = sim.ExecuteCommand(new BuildTileCommand(target, TileType.Floor, 1, 3.0));
+        Guid jobId = build.JobId!.Value;
+        var job = sim.JobManager.ActiveJobs.Single(candidate => candidate.Id == jobId);
+        var first = sim.Crew[0].Crew;
+        sim.JobManager.ClaimHighestPriorityJob(first);
+        Assert.Equal(JobState.Reserved, job.State);
+
+        var reassign = sim.ExecuteCommand(new ReassignJobCommand(jobId));
+
+        Assert.True(reassign.Success, reassign.Message);
+        Assert.Equal(JobState.Queued, job.State);
+        Assert.Null(job.AssignedCrewId);
+        Assert.True(sim.JobManager.CanCrewClaimJob(job, first));
     }
 
     [Fact]

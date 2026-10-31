@@ -12,7 +12,7 @@ Simulation update ordering, job lifecycle and retry rules, invariant checks, sav
 
 ## Recent Progress
 
-- **2026-10-27:** Baseline re-established at 121 passing tests. Jobs now have explicit lifecycle states, full reservation release, bounded retry/backoff, and a bounded event history; construction orders reserve materials and return them on cancellation or failure; development invariants cover ownership, placement, door connectivity, room boundaries, and utility connectivity; saves use format v4 with backward migration; all six scenarios plus the full industrial chain have headless smoke and long-run coverage; player actions flow through validated commands with explicit failure codes; and the engine exposes a player-facing alert feed plus a simulation debug view. The rules are documented in [`docs/simulation-contract.md`](docs/simulation-contract.md).
+- **2026-10-27:** Baseline re-established at 122 passing tests. Jobs now have explicit lifecycle states, full reservation release, bounded retry/backoff, and a bounded event history; construction orders reserve materials and return them on cancellation or failure; development invariants cover ownership, placement, door connectivity, room boundaries, and utility connectivity; saves use format v4 with backward migration; all six scenarios plus the full industrial chain have headless smoke and long-run coverage; player actions flow through validated commands with explicit failure codes; and the management UI now provides a crew roster, job controls, stockpile and production views, overlay legends, save slots, alert focus, and debug views. The rules are documented in [`docs/simulation-contract.md`](docs/simulation-contract.md).
 
 
 ## Phase 0: Establish a Reliable Baseline
@@ -66,23 +66,23 @@ Simulation update ordering, job lifecycle and retry rules, invariant checks, sav
 
 ### Ship interaction
 - [ ] Add clear selection, hover, placement previews, and invalid-placement reasons.
-- [ ] Separate world rendering, utility overlays, selection, and UI presentation.
+- [x] Separate world rendering, utility overlays, selection, and UI presentation.
 - [ ] Verify zoom, resize, high-DPI input, and mouse-to-world coordinate mapping.
 - [ ] Ensure UI input does not also issue unintended world commands.
 
 ### Crew management
 - [ ] Add crew roster with role, vitals, skills, current job, and status.
 - [ ] Add configurable work priorities by crew member or job category.
-- [ ] Show blocked jobs, missing resources, unreachable targets, and hazard avoidance.
-- [ ] Make job cancellation, reassignment, and emergency priorities explicit.
+- [x] Show blocked jobs, missing resources, unreachable targets, and hazard avoidance.
+- [x] Make job cancellation, reassignment, and emergency priorities explicit.
 
 ### Ship management
-- [ ] Add categorized construction menu with cost and build requirements.
-- [ ] Show construction delivery and progress; support cancellation and deconstruction.
+- [x] Add categorized construction menu with cost and build requirements.
+- [x] Show construction delivery and progress; support cancellation and deconstruction.
 - [ ] Add inventory/stockpile views and production queues.
-- [ ] Add power, atmosphere, plumbing, and thermal overlays with readable legends.
-- [ ] Add central alerts that locate affected components and explain likely causes.
-- [ ] Add pause, simulation speed, save/load slots, and clear error feedback.
+- [x] Add power, atmosphere, plumbing, and thermal overlays with readable legends.
+- [x] Add central alerts that locate affected components and explain likely causes.
+- [x] Add pause, simulation speed, save/load slots, and clear error feedback.
 
 **Exit criteria:** players can diagnose and manage the ship without relying on developer-only inspection panels.
 

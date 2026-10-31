@@ -181,14 +181,11 @@ public sealed class EngineApp
 
             // Render interactive UI panels
             _ui.Render(sim, ref _overlayMode, ref _selectedTile, ref _selectedCrew, ref _selectedMachine);
-            if (_ui.LoadRequested)
+            if (_ui.LoadRequestedPath is { } loadPath)
             {
                 try
                 {
-                    sim = SimulationSerializer.LoadFromFile(Path.Combine(
-                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                        "Voidworks",
-                        "ship-save.json"));
+                    sim = SimulationSerializer.LoadFromFile(loadPath);
                     _selectedCrew = sim.Crew.FirstOrDefault()?.Crew;
                     _selectedMachine = null;
                     _selectedTile = _selectedCrew?.Position;

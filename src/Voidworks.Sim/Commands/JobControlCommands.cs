@@ -40,6 +40,25 @@ public sealed record CancelJobCommand(Guid JobId) : ISimulationCommand
     }
 }
 
+public sealed record ReassignJobCommand(Guid JobId) : ISimulationCommand
+{
+    public string Name => "ReassignJob";
+
+    public SimulationCommandResult Execute(SimulationState simulation)
+    {
+        Job? job = simulation.JobManager.ActiveJobs.FirstOrDefault(candidate => candidate.Id == JobId);
+        if (job == null)
+            return SimulationCommandResult.Fail("JobNotFound", $"No active job with id {JobId} exists.");
+        if (job.IsTerminal)
+            return SimulationCommandResult.Fail("JobTerminal", $"Job '{job.Name}' is already {job.State}.");
+
+        Guid? previous = job.AssignedCrewId;
+        simulation.JobManager.ReleaseJob(job);
+        string from = previous.HasValue ? $" from crew {previous}" : " (it was unassigned)";
+        return SimulationCommandResult.Ok($"Job '{job.Name}' released{from} and returned to the queue.", job.Id);
+    }
+}
+
 public sealed record TransferCoolantCommand(double Liters) : ISimulationCommand
 {
     public string Name => "TransferCoolant";

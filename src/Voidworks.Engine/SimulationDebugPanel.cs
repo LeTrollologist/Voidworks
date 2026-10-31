@@ -3,8 +3,11 @@ using System.Linq;
 using Brutal.ImGuiApi;
 using Brutal.Numerics;
 using Voidworks.Sim;
+using Voidworks.Sim.Crew;
 using Voidworks.Sim.Diagnostics;
+using Voidworks.Sim.Jobs;
 using Voidworks.Sim.Machinery;
+using Voidworks.Sim.Ship;
 
 namespace Voidworks.Engine;
 
@@ -72,7 +75,11 @@ public sealed class SimulationDebugPanel
         ImGui.End();
     }
 
-    public void RenderAlerts(SimulationState sim)
+    public void RenderAlerts(
+        SimulationState sim,
+        ref GridCoord? selectedTile,
+        ref CrewMember? selectedCrew,
+        ref Machine? selectedMachine)
     {
         ImGui.SetNextWindowPos(new float2(490f, 560f), ImGuiCond.FirstUseEver);
         ImGui.SetNextWindowSize(new float2(400f, 330f), ImGuiCond.FirstUseEver);
@@ -105,6 +112,37 @@ public sealed class SimulationDebugPanel
                 _ => new float4(0.6f, 0.8f, 1.0f, 1.0f)
             };
             ImGui.TextColored(color, $"[{alert.SimTime:F0}s] {alert.Title}");
+            ImGui.SameLine();
+            if (ImGui.Button($"Locate {alert.Sequence}"))
+            {
+                if (alert.JobId is Guid jobId)
+                {
+                    var job = sim.JobManager.ActiveJobs
+                        .Concat(sim.JobManager.FailedJobsHistory)
+                        .FirstOrDefault(candidate => candidate.Id == jobId);
+                    if (job != null)
+                    {
+                        GridCoord? focusTile = job.TargetItem?.Position ?? job.TargetCoord;
+                        selectedTile = focusTile;
+                        selectedCrew = job.AssignedCrewId.HasValue
+                            ? sim.Crew.FirstOrDefault(agent => agent.Crew.Id == job.AssignedCrewId.Value)?.Crew
+                            : null;
+                        selectedMachine = focusTile.HasValue
+                            ? sim.Machines.FirstOrDefault(machine => machine.Position == focusTile.Value)
+                            : null;
+                    }
+                }
+                else if (alert.CrewId is Guid crewId)
+                {
+                    var agent = sim.Crew.FirstOrDefault(candidate => candidate.Crew.Id == crewId);
+                    if (agent != null)
+                    {
+                        selectedCrew = agent.Crew;
+                        selectedTile = agent.Crew.Position;
+                        selectedMachine = null;
+                    }
+                }
+            }
             ImGui.TextDisabled($"   {alert.Message}");
         }
 

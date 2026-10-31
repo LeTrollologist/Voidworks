@@ -337,6 +337,7 @@ public sealed class ViewportRenderer
             OverlayMode.Hazards => GetHazardColor(tile),
             OverlayMode.Power => 0xFF252018,
             OverlayMode.Plumbing => 0xFF182025,
+            OverlayMode.Thermal => GetThermalColor(tile.Atmosphere.TemperatureK),
             OverlayMode.CrewPaths => ColorFloor,
             _ => ColorFloor
         };
@@ -369,5 +370,14 @@ public sealed class ViewportRenderer
         if (tile.IsBreached || tile.Atmosphere.PressureKPa < 20.0)
             return 0xFF1020A0;
         return ColorFloor;
+    }
+
+    private uint GetThermalColor(double temperatureKelvin)
+    {
+        if (temperatureKelvin >= 500.0) return 0xFF2020FF; // hot
+        if (temperatureKelvin >= 360.0) return 0xFF2080FF; // warm
+        if (temperatureKelvin >= 280.0) return 0xFF20C060; // nominal
+        if (temperatureKelvin >= 240.0) return 0xFFC08020; // cool
+        return 0xFFA03060; // cold
     }
 }

@@ -8,5 +8,6 @@ public enum OverlayMode
     Hazards,
     Power,
     Plumbing,
+    Thermal,
     CrewPaths
 }

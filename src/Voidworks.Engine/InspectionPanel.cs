@@ -17,17 +17,22 @@ namespace Voidworks.Engine;
 
 public sealed class InspectionPanel
 {
-    private static readonly string SavePath = Path.Combine(
+    private const int SaveSlotCount = 3;
+    private int _saveSlot = 1;
+
+    private static string SavePathForSlot(int slot) => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "Voidworks",
-        "ship-save.json");
+        slot == 1 ? "ship-save.json" : $"ship-save-{slot}.json");
 
-    private string _persistenceStatus = "Save file: Local AppData\\Voidworks\\ship-save.json";
+    private string _persistenceStatus = "Save slot 1: Local AppData\\Voidworks\\ship-save.json";
     private string _commandStatus = string.Empty;
     private readonly SimulationDebugPanel _debugPanel = new();
+    private readonly ManagementPanel _managementPanel = new();
     private bool _showDebugPanel;
     private bool _showAlertsPanel = true;
-    public bool LoadRequested { get; private set; }
+    private bool _showManagementPanel = true;
+    public string? LoadRequestedPath { get; private set; }
 
     public void Render(
         SimulationState sim,
@@ -36,15 +41,18 @@ public sealed class InspectionPanel
         ref CrewMember? selectedCrew,
         ref Machine? selectedMachine)
     {
-        LoadRequested = false;
+        LoadRequestedPath = null;
         RenderTopTelemetryBar(sim);
         RenderControlToolbar(sim, ref overlayMode);
         RenderInspectorSidebar(sim, selectedTile, selectedCrew, ref selectedMachine);
         RenderCrewPathDebugPanel(sim);
+        if (_showManagementPanel)
+            _managementPanel.Render(sim, ref selectedTile, ref selectedCrew, ref selectedMachine);
+        RenderOverlayLegend(overlayMode);
         if (_showDebugPanel)
             _debugPanel.RenderDebug(sim);
         if (_showAlertsPanel)
-            _debugPanel.RenderAlerts(sim);
+            _debugPanel.RenderAlerts(sim, ref selectedTile, ref selectedCrew, ref selectedMachine);
     }
 
     private void RenderTopTelemetryBar(SimulationState sim)
@@ -159,6 +167,8 @@ public sealed class InspectionPanel
             ImGui.SameLine();
             if (ImGui.RadioButton("Plumbing", overlayMode == OverlayMode.Plumbing)) overlayMode = OverlayMode.Plumbing;
             ImGui.SameLine();
+            if (ImGui.RadioButton("Thermal", overlayMode == OverlayMode.Thermal)) overlayMode = OverlayMode.Thermal;
+            ImGui.SameLine();
             if (ImGui.RadioButton("Hazards", overlayMode == OverlayMode.Hazards)) overlayMode = OverlayMode.Hazards;
             ImGui.SameLine();
             if (ImGui.RadioButton("Crew Paths", overlayMode == OverlayMode.CrewPaths)) overlayMode = OverlayMode.CrewPaths;
@@ -167,6 +177,8 @@ public sealed class InspectionPanel
             if (ImGui.Button(" Debug ")) _showDebugPanel = !_showDebugPanel;
             ImGui.SameLine();
             if (ImGui.Button(" Alerts ")) _showAlertsPanel = !_showAlertsPanel;
+            ImGui.SameLine();
+            if (ImGui.Button(" Mgmt ")) _showManagementPanel = !_showManagementPanel;
 
             ImGui.SameLine(1085f);
             if (ImGui.Button(" TRIGGER BREACH "))
@@ -178,6 +190,61 @@ public sealed class InspectionPanel
                 }
             }
         }
+        ImGui.End();
+    }
+
+    private static void RenderOverlayLegend(OverlayMode overlayMode)
+    {
+        if (overlayMode == OverlayMode.Normal)
+            return;
+
+        ImGui.SetNextWindowPos(new float2(490f, 165f), ImGuiCond.FirstUseEver);
+        ImGui.SetNextWindowSize(new float2(320f, 120f), ImGuiCond.FirstUseEver);
+        if (!ImGui.Begin("Overlay Legend"))
+        {
+            ImGui.End();
+            return;
+        }
+
+        ImGui.TextColored(new float4(0.4f, 1.0f, 0.8f, 1.0f), overlayMode.ToString().ToUpperInvariant());
+        switch (overlayMode)
+        {
+            case OverlayMode.Pressure:
+                ImGui.TextColored(new float4(0.4f, 0.6f, 1.0f, 1.0f), "Blue: low pressure");
+                ImGui.TextColored(new float4(0.4f, 1.0f, 0.5f, 1.0f), "Green: breathable pressure");
+                ImGui.TextColored(new float4(1.0f, 0.35f, 0.3f, 1.0f), "Red: vacuum or overpressure");
+                break;
+            case OverlayMode.Oxygen:
+                ImGui.TextColored(new float4(0.4f, 1.0f, 0.5f, 1.0f), "Green: breathable oxygen");
+                ImGui.TextColored(new float4(0.4f, 0.6f, 1.0f, 1.0f), "Blue: thin oxygen");
+                ImGui.TextColored(new float4(1.0f, 0.35f, 0.3f, 1.0f), "Red: dangerous mixture");
+                break;
+            case OverlayMode.Hazards:
+                ImGui.TextColored(new float4(1.0f, 0.35f, 0.3f, 1.0f), "Red: hull breach / vacuum");
+                ImGui.TextColored(new float4(1.0f, 0.7f, 0.3f, 1.0f), "Orange: heat or toxic hazard");
+                break;
+            case OverlayMode.Power:
+                ImGui.TextColored(new float4(0.2f, 0.8f, 1.0f, 1.0f), "Cyan: cable run");
+                ImGui.TextColored(new float4(0.4f, 1.0f, 0.5f, 1.0f), "Green: powered machine");
+                ImGui.TextColored(new float4(1.0f, 0.7f, 0.3f, 1.0f), "Orange: brownout");
+                ImGui.TextColored(new float4(1.0f, 0.35f, 0.3f, 1.0f), "Red: unpowered / offline");
+                break;
+            case OverlayMode.Plumbing:
+                ImGui.TextColored(new float4(1.0f, 0.6f, 0.2f, 1.0f), "Orange: coolant loop");
+                ImGui.TextColored(new float4(0.2f, 0.5f, 1.0f, 1.0f), "Blue: propellant line");
+                break;
+            case OverlayMode.Thermal:
+                ImGui.TextColored(new float4(1.0f, 0.35f, 0.3f, 1.0f), "Red: hot (> 500 K)");
+                ImGui.TextColored(new float4(1.0f, 0.7f, 0.3f, 1.0f), "Orange: warm (360-500 K)");
+                ImGui.TextColored(new float4(0.4f, 1.0f, 0.5f, 1.0f), "Green: nominal (280-360 K)");
+                ImGui.TextColored(new float4(0.4f, 0.6f, 1.0f, 1.0f), "Blue/purple: cold (< 280 K)");
+                break;
+            case OverlayMode.CrewPaths:
+                ImGui.TextDisabled("One colour per crew member.");
+                ImGui.TextDisabled("Circles mark planned route destinations.");
+                break;
+        }
+
         ImGui.End();
     }
 
@@ -689,8 +756,40 @@ public sealed class InspectionPanel
         {
             string label = pendingOrder.Type == JobType.Deconstruct ? "Deconstruction queued" : "Construction queued";
             ImGui.TextColored(new float4(1.0f, 0.8f, 0.3f, 1.0f), $"{label}: {pendingOrder.Name}");
+
+            string assignee = pendingOrder.AssignedCrewId.HasValue
+                ? sim.Crew.FirstOrDefault(agent => agent.Crew.Id == pendingOrder.AssignedCrewId.Value)?.Crew.Name
+                  ?? "missing crew"
+                : "unassigned";
+            ImGui.TextDisabled(
+                $"{pendingOrder.State} | crew: {assignee} | priority {pendingOrder.Priority} | " +
+                $"work {pendingOrder.WorkRemainingSeconds:F1}s");
+
+            if (pendingOrder.RequiredSteelPlates > 0 || pendingOrder.RequiredMachineComponents > 0)
+            {
+                int reserved = pendingOrder.ReservedMaterialIds.Count;
+                int carried = pendingOrder.ReservedMaterialIds.Count(id => sim.Crew.Any(agent =>
+                    agent.Crew.Inventory.Any(item => item.Id == id)));
+                ImGui.TextDisabled(
+                    $"Materials: {carried}/{reserved} reserved items carried | requires " +
+                    $"{pendingOrder.RequiredSteelPlates} plates + {pendingOrder.RequiredMachineComponents} components");
+            }
+
+            string? reason = pendingOrder.BlockedReason ?? pendingOrder.LastFailureReason;
+            if (!string.IsNullOrWhiteSpace(reason))
+                ImGui.TextColored(new float4(1.0f, 0.55f, 0.25f, 1.0f), reason);
+
             if (ImGui.Button("Cancel Order"))
                 SetCommandStatus(sim.ExecuteCommand(new CancelJobCommand(pendingOrder.Id)));
+            ImGui.SameLine();
+            if (ImGui.Button("Reassign"))
+                SetCommandStatus(sim.ExecuteCommand(new ReassignJobCommand(pendingOrder.Id)));
+            ImGui.SameLine();
+            if (ImGui.Button("+ Priority"))
+                SetCommandStatus(sim.ExecuteCommand(new SetJobPriorityCommand(pendingOrder.Id, pendingOrder.Priority + 10)));
+            ImGui.SameLine();
+            if (ImGui.Button("- Priority"))
+                SetCommandStatus(sim.ExecuteCommand(new SetJobPriorityCommand(pendingOrder.Id, pendingOrder.Priority - 10)));
             return;
         }
 
@@ -782,27 +881,38 @@ public sealed class InspectionPanel
 
     private void RenderPersistenceControls(SimulationState sim)
     {
+        ImGui.TextDisabled("Save slot:");
+        for (int slot = 1; slot <= SaveSlotCount; slot++)
+        {
+            ImGui.SameLine();
+            if (ImGui.Button(slot == _saveSlot ? $"[{slot}]" : $" {slot} "))
+            {
+                _saveSlot = slot;
+                _persistenceStatus = $"Slot {slot}: {SavePathForSlot(slot)}";
+            }
+        }
+
         if (ImGui.Button("SAVE SHIP"))
         {
             try
             {
-                SimulationSerializer.SaveToFile(sim, SavePath);
-                _persistenceStatus = "Ship saved.";
+                SimulationSerializer.SaveToFile(sim, SavePathForSlot(_saveSlot));
+                _persistenceStatus = $"Ship saved to slot {_saveSlot}.";
             }
             catch (Exception ex)
             {
-                _persistenceStatus = $"Save failed: {ex.Message}";
+                _persistenceStatus = $"Save failed (slot {_saveSlot}): {ex.Message}";
             }
         }
 
         ImGui.SameLine();
         if (ImGui.Button("LOAD SHIP"))
-            LoadRequested = true;
+            LoadRequestedPath = SavePathForSlot(_saveSlot);
 
         ImGui.TextDisabled(_persistenceStatus);
         ImGui.Separator();
     }
 
-    public void ClearLoadRequest() => LoadRequested = false;
+    public void ClearLoadRequest() => LoadRequestedPath = null;
     public void SetPersistenceStatus(string message) => _persistenceStatus = message;
 }

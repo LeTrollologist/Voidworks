@@ -28,6 +28,8 @@ The goal is a simulation where machinery, resources, atmosphere, and people depe
 - Construction orders let crew build hull panels, floors, interior partition walls, bulkhead doors, and machinery from steel plates and machine components. Construction requires a welding torch; machines must be installed on an unused floor tile.
 - Deconstruction orders let crew dismantle machinery and strip walls, doors, floors, or hull panels with a welding torch to reclaim structural steel and machine components.
 - Construction orders reserve their required plates, components, and welding torch; cancelled or failed orders return carried consumables to the world and release tool reservations for other orders.
+- Management panel with crew roster, job cancellation/reassignment/priority controls, stockpile totals, and production status; overlay legends, three save slots, and alerts that jump to the affected tile or crew member.
+
 
 - Player actions are validated simulation commands for construction, utilities, machine controls, doors, job priority and cancellation, and coolant transfer; rejected actions return explicit failure codes and are recorded in the event history.
 - A player-facing alert feed (critical, warning, informational) is derived from simulation events, and a debug panel exposes active jobs, reservations, crew routes, utility flow, and machine state.
