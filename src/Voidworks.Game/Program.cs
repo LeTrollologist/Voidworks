@@ -187,7 +187,7 @@ if (!forceConsole)
 {
     try
     {
-        Console.WriteLine("\n[Window] Initializing BRUTAL 2D Viewport (GLFW + OpenGL 3.3 + Dear ImGui)...");
+        Console.WriteLine("\n[Window] Initializing BRUTAL 2D Viewport (GLFW + OpenGL 4.1 Core + Dear ImGui)...");
         Console.WriteLine("[Controls] Pan: Middle Click + Drag | Zoom: Mouse Wheel | Select: Left Click | Pause: Spacebar\n");
 
         var app = new EngineApp();

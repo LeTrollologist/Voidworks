@@ -84,7 +84,7 @@ The project uses C# and .NET, with BRUTAL packages for low-level engine function
 ## Requirements
 
 - .NET SDK **10.0.402** or a compatible .NET 10 SDK
-- A graphics-capable desktop environment for graphical mode
+- A graphics-capable desktop environment with **OpenGL 4.1 core profile** for graphical mode
 - The BRUTAL package dependencies referenced by the solution
 
 ## Getting started

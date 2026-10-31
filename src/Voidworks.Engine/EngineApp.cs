@@ -2,10 +2,12 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using Brutal.GlfwApi;
 using Brutal.ImGuiApi;
 using Brutal.ImGuiApi.Backends;
 using Brutal.Numerics;
+using Brutal.OpenGlApi;
 using Voidworks.Sim;
 using Voidworks.Sim.Crew;
 using Voidworks.Sim.Machinery;
@@ -29,13 +31,14 @@ public sealed class EngineApp
     private bool _isPanning = false;
     private bool _spaceWasPressed = false;
 
-    public void Run(SimulationState sim)
+    public unsafe void Run(SimulationState sim)
     {
         if (!Glfw.Init())
             throw new InvalidOperationException("Failed to initialize GLFW via BRUTAL.");
 
-        Glfw.WindowHint(GlfwWindowHint.ContextVersionMajor, 3);
-        Glfw.WindowHint(GlfwWindowHint.ContextVersionMinor, 3);
+        Glfw.WindowHint(GlfwWindowHint.ContextVersionMajor, 4);
+        Glfw.WindowHint(GlfwWindowHint.ContextVersionMinor, 1);
+        Glfw.WindowHint(GlfwWindowHint.OpenGlProfile, 0x00032001); // GLFW_OPENGL_CORE_PROFILE
 
         int initialWidth = 1600;
         int initialHeight = 900;
@@ -49,10 +52,17 @@ public sealed class EngineApp
         if (window.IsNull())
         {
             Glfw.Terminate();
-            throw new InvalidOperationException("Failed to create GLFW window.");
+            throw new InvalidOperationException(
+                "Failed to create GLFW window. Graphical mode requires an OpenGL 4.1 core-profile context.");
         }
 
         window.MakeContextCurrent();
+
+        if (!Glad.Initialize(ResolveGlFunction))
+        {
+            Glfw.Terminate();
+            throw new InvalidOperationException("Failed to initialize the OpenGL function loader (GLAD).");
+        }
 
         // Center camera on ship
         _camera.WorldCenter = new float2(sim.Grid.Width * 0.5f, sim.Grid.Height * 0.5f);
@@ -213,4 +223,7 @@ public sealed class EngineApp
         window.Dispose();
         Glfw.Terminate();
     }
+
+    private static unsafe IntPtr ResolveGlFunction(byte* name)
+        => Glfw.GetProcAddress(MemoryMarshal.CreateReadOnlySpanFromNullTerminated(name));
 }
