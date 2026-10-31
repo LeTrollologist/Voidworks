@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using Voidworks.Sim.Jobs;
 using Voidworks.Sim.Machinery;
+using Voidworks.Sim.Navigation;
 using Voidworks.Sim.Ship;
 
 namespace Voidworks.Sim.Commands;
@@ -19,6 +20,23 @@ internal static class ConstructionCommandValidation
     public static bool HasAdjacentFloor(ShipGrid grid, GridCoord target)
         => target.Cardinals().Any(neighbor =>
             grid.IsInBounds(neighbor) && grid[neighbor].Type == TileType.Floor);
+
+    /// <summary>
+    /// True when at least one crew member can reach a tile adjacent to the work
+    /// site. With no crew, validation is deferred to job execution.
+    /// </summary>
+    public static bool IsReachable(SimulationState sim, GridCoord target)
+    {
+        if (sim.Crew.Count == 0)
+            return true;
+
+        return sim.Crew.Any(agent =>
+        {
+            var route = AStarPathfinder.FindPathToAdjacentWithDiagnostics(
+                sim.Grid, agent.Crew.Position, target, agent.Crew);
+            return route.Path is { Count: > 0 };
+        });
+    }
 }
 
 public sealed record BuildTileCommand(
@@ -69,6 +87,10 @@ public sealed record BuildTileCommand(
 
         try
         {
+            if (!ConstructionCommandValidation.IsReachable(simulation, Target))
+                return SimulationCommandResult.Fail("Unreachable",
+                    $"No crew member can reach a tile adjacent to {Target}.");
+
             Job job = Job.CreateBuildTile(Target, TileType, SteelPlates, WorkSeconds);
             simulation.JobManager.PostJob(job);
             return SimulationCommandResult.Ok($"Queued {TileType} construction at {Target}.", job.Id);
@@ -105,6 +127,10 @@ public sealed record InstallMachineCommand(
 
         try
         {
+            if (!ConstructionCommandValidation.IsReachable(simulation, Target))
+                return SimulationCommandResult.Fail("Unreachable",
+                    $"No crew member can reach a tile adjacent to {Target}.");
+
             Job job = Job.CreateInstallMachine(Target, MachineType, SteelPlates, MachineComponents, WorkSeconds);
             simulation.JobManager.PostJob(job);
             return SimulationCommandResult.Ok($"Queued {MachineType} installation at {Target}.", job.Id);

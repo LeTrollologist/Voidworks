@@ -74,6 +74,25 @@ public class CommandLayerTests
     }
 
     [Fact]
+    public void InstallMachine_AtSealedSite_IsRejectedAsUnreachable()
+    {
+        SimulationState sim = CommandTestWorld.Create();
+        for (int x = 5; x <= 7; x++)
+        {
+            sim.Grid[x, 4].Type = TileType.InteriorWall;
+            sim.Grid[x, 6].Type = TileType.InteriorWall;
+        }
+        sim.Grid[5, 5].Type = TileType.InteriorWall;
+        sim.Grid[7, 5].Type = TileType.InteriorWall;
+
+        var result = sim.ExecuteCommand(new InstallMachineCommand(
+            new GridCoord(6, 5), MachineType.Battery, 4, 0, 3.0));
+
+        Assert.False(result.Success);
+        Assert.Equal("Unreachable", result.FailureCode);
+    }
+
+    [Fact]
     public void ToggleUtility_RejectsSpace_AndTogglesOnStructure()
     {
         SimulationState sim = CommandTestWorld.Create();

@@ -205,7 +205,7 @@ public sealed class SimulationState : IJobWorldContext
             // 1. Mining Laser: Pulses asteroid to extract ore
             if (m.Type == MachineType.MiningLaser)
             {
-                if (!m.CanProduce)
+                if (!m.CanStartCycle(ProductionRecipe.MineOre))
                     continue;
 
                 if (!m.TargetAsteroidCoord.HasValue || !Grid.IsInBounds(m.TargetAsteroidCoord.Value) || Grid[m.TargetAsteroidCoord.Value].Type != TileType.Asteroid)
@@ -226,14 +226,14 @@ public sealed class SimulationState : IJobWorldContext
                             astTile.AsteroidIronOre--;
                             JobManager.AddItem(new Item(ItemType.IronOre, m.Position));
                             m.TotalOreExtracted++;
-                            m.ProductionCyclesCompleted++;
+                            m.CompleteCycle(ProductionRecipe.MineOre);
                         }
                         else if (astTile.AsteroidIceOre > 0)
                         {
                             astTile.AsteroidIceOre--;
                             JobManager.AddItem(new Item(ItemType.IceOre, m.Position));
                             m.TotalOreExtracted++;
-                            m.ProductionCyclesCompleted++;
+                            m.CompleteCycle(ProductionRecipe.MineOre);
                         }
 
                         if (astTile.AsteroidIronOre <= 0 && astTile.AsteroidIceOre <= 0)
@@ -316,7 +316,8 @@ public sealed class SimulationState : IJobWorldContext
                     if (!m.CanProduce)
                         continue;
 
-                    if (!m.IsComponentFabricationInProgress && steel.Count == 2 && iron != null)
+                    if (!m.IsComponentFabricationInProgress && steel.Count == 2 && iron != null &&
+                        m.CanStartCycle(ProductionRecipe.FabricateComponent))
                     {
                         foreach (var plate in steel) JobManager.RemoveItem(plate);
                         JobManager.RemoveItem(iron);
@@ -330,7 +331,7 @@ public sealed class SimulationState : IJobWorldContext
                         {
                             m.ComponentFabricationProgressSeconds -= m.ComponentFabricationCycleSeconds;
                             m.ComponentsProduced++;
-                            m.ProductionCyclesCompleted++;
+                            m.CompleteCycle(ProductionRecipe.FabricateComponent);
                             m.IsComponentFabricationInProgress = false;
                         }
                     }
@@ -338,7 +339,13 @@ public sealed class SimulationState : IJobWorldContext
             }
             else if (m.Type == MachineType.IceProcessor)
             {
-                if (m.ProduceFuelCanisters)
+                ProductionRecipe desiredRecipe = m.ProductionQueue.Count > 0
+                    ? m.ProductionQueue[0].Recipe
+                    : m.ProduceFuelCanisters ? ProductionRecipe.ProcessFuel : ProductionRecipe.ProcessWater;
+                if (desiredRecipe is not (ProductionRecipe.ProcessFuel or ProductionRecipe.ProcessWater))
+                    continue;
+
+                if (desiredRecipe == ProductionRecipe.ProcessFuel)
                 {
                     if (m.FuelCanistersProduced > 0)
                     {
@@ -347,7 +354,7 @@ public sealed class SimulationState : IJobWorldContext
                     }
                     else
                     {
-                        if (!m.CanProduce)
+                        if (!m.CanProduce || !m.CanStartCycle(desiredRecipe))
                             continue;
 
                         if (!m.IsIceProcessingInProgress)
@@ -369,13 +376,13 @@ public sealed class SimulationState : IJobWorldContext
                             {
                                 m.IceProcessingProgressSeconds -= m.IceProcessingCycleSeconds;
                                 m.FuelCanistersProduced++;
-                                m.ProductionCyclesCompleted++;
+                                m.CompleteCycle(ProductionRecipe.ProcessFuel);
                                 m.IsIceProcessingInProgress = false;
                             }
                         }
                     }
                 }
-                else
+                else if (desiredRecipe == ProductionRecipe.ProcessWater)
                 {
                     if (m.WaterRationsProduced > 0)
                     {
@@ -384,7 +391,7 @@ public sealed class SimulationState : IJobWorldContext
                     }
                     else
                     {
-                        if (!m.CanProduce)
+                        if (!m.CanProduce || !m.CanStartCycle(desiredRecipe))
                             continue;
 
                         if (!m.IsIceProcessingInProgress)
@@ -405,7 +412,7 @@ public sealed class SimulationState : IJobWorldContext
                             {
                                 m.IceProcessingProgressSeconds -= m.IceProcessingCycleSeconds;
                                 m.WaterRationsProduced++;
-                                m.ProductionCyclesCompleted++;
+                                m.CompleteCycle(ProductionRecipe.ProcessWater);
                                 m.IsIceProcessingInProgress = false;
                             }
                         }

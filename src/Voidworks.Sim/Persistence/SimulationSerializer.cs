@@ -19,11 +19,11 @@ namespace Voidworks.Sim.Persistence;
 public static class SimulationSerializer
 {
     /// <summary>
-    /// Current save format. Version 3 added job lifecycle state, version 4 added job
-    /// material/tool reservations, and version 5 adds machine production controls.
-    /// Versions 0-4 remain readable with older features defaulted.
+    /// Current save format. Version 3 added job lifecycle state, version 4 job
+    /// material reservations, version 5 machine production controls, and version 6
+    /// machine production queues. Versions 0-5 remain readable with defaults.
     /// </summary>
-    public const int CurrentSaveFormatVersion = 5;
+    public const int CurrentSaveFormatVersion = 6;
     public const int MinimumSupportedSaveFormatVersion = 0;
     private const long MaximumSavedGridTileCount = 1_000_000;
 
@@ -179,7 +179,11 @@ public static class SimulationSerializer
                 IsIceProcessingInProgress = m.IsIceProcessingInProgress,
                 ProductionPaused = m.ProductionPaused,
                 ProductionLimit = m.ProductionLimit,
-                ProductionCyclesCompleted = m.ProductionCyclesCompleted
+                ProductionCyclesCompleted = m.ProductionCyclesCompleted,
+                AutoProductionEnabled = m.AutoProductionEnabled,
+                ProductionQueue = m.ProductionQueue
+                    .Select(order => new ProductionOrderSaveDto { Recipe = order.Recipe, Quantity = order.Quantity })
+                    .ToList()
             }).ToList(),
             Cables = sim.Cables.Select(c => new CoordDto { X = c.X, Y = c.Y }).ToList(),
             CoolantPipes = sim.PlumbingSolver.CoolantPipes.Select(c => new CoordDto { X = c.X, Y = c.Y }).ToList(),
@@ -356,8 +360,11 @@ public static class SimulationSerializer
                 IsIceProcessingInProgress = mDto.IsIceProcessingInProgress,
                 ProductionPaused = mDto.ProductionPaused,
                 ProductionLimit = mDto.ProductionLimit,
-                ProductionCyclesCompleted = mDto.ProductionCyclesCompleted
+                ProductionCyclesCompleted = mDto.ProductionCyclesCompleted,
+                AutoProductionEnabled = mDto.AutoProductionEnabled
             };
+            foreach (var order in mDto.ProductionQueue)
+                m.ProductionQueue.Add(new ProductionOrder(order.Recipe, order.Quantity));
             m.SetPowerFraction(mDto.PowerFraction ?? (mDto.IsPowered ? 1.0 : 0.0));
             if (mDto.TargetAsteroidX.HasValue && mDto.TargetAsteroidY.HasValue)
                 m.TargetAsteroidCoord = new GridCoord(mDto.TargetAsteroidX.Value, mDto.TargetAsteroidY.Value);
@@ -600,6 +607,13 @@ public static class SimulationSerializer
                 throw new InvalidDataException($"Machine '{machine.Name}' contains an incomplete asteroid coordinate.");
             if (machine.ProductionLimit < -1 || machine.ProductionCyclesCompleted < 0)
                 throw new InvalidDataException($"Machine '{machine.Name}' contains invalid production controls.");
+            if (machine.ProductionQueue == null)
+                throw new InvalidDataException($"Machine '{machine.Name}' contains a missing production queue.");
+            if (machine.ProductionQueue.Any(order =>
+                    order == null || !Enum.IsDefined(typeof(ProductionRecipe), order.Recipe) || order.Quantity <= 0))
+                throw new InvalidDataException($"Machine '{machine.Name}' contains an invalid production order.");
+            if (machine.ProductionQueue.Sum(order => (long)order.Quantity) > 1000)
+                throw new InvalidDataException($"Machine '{machine.Name}' production queue exceeds the supported cycle count.");
             if (machine.TargetAsteroidX.HasValue)
                 ValidateCoordinate(machine.TargetAsteroidX.Value, machine.TargetAsteroidY!.Value,
                     dto.GridWidth, dto.GridHeight, "asteroid target");
@@ -1083,6 +1097,8 @@ public sealed class MachineSaveDto
     public bool ProductionPaused { get; set; }
     public int ProductionLimit { get; set; } = -1;
     public int ProductionCyclesCompleted { get; set; }
+    public bool AutoProductionEnabled { get; set; } = true;
+    public List<ProductionOrderSaveDto> ProductionQueue { get; set; } = new();
     public double PowerOutput { get; set; }
     public double RatedPowerOutput { get; set; }
     public double PowerDemand { get; set; }
@@ -1234,6 +1250,12 @@ public sealed class JobSaveDto
 
     // Version 4 material/tool reservations.
     public List<Guid> ReservedMaterialIds { get; set; } = new();
+}
+
+public sealed class ProductionOrderSaveDto
+{
+    public ProductionRecipe Recipe { get; set; }
+    public int Quantity { get; set; }
 }
 
 public sealed class ScenarioObjectiveSaveDto

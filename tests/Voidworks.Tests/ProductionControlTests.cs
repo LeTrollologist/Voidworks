@@ -99,11 +99,75 @@ public class ProductionControlTests
     }
 
     [Fact]
+    public void ProductionQueue_RunsQueuedCycles_ThenStopsWhenAutoDisabled()
+    {
+        var (sim, smelter) = CreateSmelter();
+        Assert.True(sim.ExecuteCommand(new SetAutoProductionCommand(smelter.Id, false)).Success);
+        var queued = sim.ExecuteCommand(new QueueProductionCommand(
+            smelter.Id, ProductionRecipe.SmeltSteel, 2));
+        Assert.True(queued.Success, queued.Message);
+        Assert.Equal(2, smelter.QueuedCycles);
+
+        for (int tick = 0; tick < 40; tick++)
+            sim.Step(SimulationState.FixedTickDt);
+
+        Assert.Equal(2, smelter.ProductionCyclesCompleted);
+        Assert.Empty(smelter.ProductionQueue);
+        int cyclesAfterQueue = smelter.ProductionCyclesCompleted;
+
+        for (int tick = 0; tick < 20; tick++)
+            sim.Step(SimulationState.FixedTickDt);
+        Assert.Equal(cyclesAfterQueue, smelter.ProductionCyclesCompleted);
+    }
+
+    [Fact]
+    public void ProductionQueue_ValidatesRecipeAndCanBeCleared()
+    {
+        var (sim, smelter) = CreateSmelter();
+
+        var unsupported = sim.ExecuteCommand(new QueueProductionCommand(
+            smelter.Id, ProductionRecipe.FabricateComponent, 1));
+        Assert.False(unsupported.Success);
+        Assert.Equal("UnsupportedRecipe", unsupported.FailureCode);
+
+        sim.ExecuteCommand(new QueueProductionCommand(smelter.Id, ProductionRecipe.SmeltSteel, 3));
+        Assert.Equal(3, smelter.QueuedCycles);
+
+        var cleared = sim.ExecuteCommand(new ClearProductionQueueCommand(smelter.Id));
+        Assert.True(cleared.Success, cleared.Message);
+        Assert.Equal(0, smelter.QueuedCycles);
+    }
+
+    [Fact]
+    public void ProductionDiagnostics_ExplainsBlockers()
+    {
+        var (sim, smelter) = CreateSmelter();
+        smelter.IsPowered = true;
+        smelter.IronOreStored = 0;
+        Assert.Equal("No iron ore", ProductionDiagnostics.GetBlockReason(sim, smelter));
+
+        smelter.ProductionPaused = true;
+        Assert.Equal("Production paused", ProductionDiagnostics.GetBlockReason(sim, smelter));
+
+        smelter.ProductionPaused = false;
+        smelter.IronOreStored = 1;
+        smelter.ProductionLimit = 1;
+        smelter.ProductionCyclesCompleted = 1;
+        Assert.Equal("Production limit reached", ProductionDiagnostics.GetBlockReason(sim, smelter));
+
+        smelter.ProductionLimit = -1;
+        smelter.AutoProductionEnabled = false;
+        Assert.Equal("Manual queue empty", ProductionDiagnostics.GetBlockReason(sim, smelter));
+    }
+
+    [Fact]
     public void SaveRoundTrip_PreservesProductionControls()
     {
         var (sim, smelter) = CreateSmelter();
         sim.ExecuteCommand(new SetProductionPausedCommand(smelter.Id, true));
         sim.ExecuteCommand(new SetProductionLimitCommand(smelter.Id, 3));
+        sim.ExecuteCommand(new SetAutoProductionCommand(smelter.Id, false));
+        sim.ExecuteCommand(new QueueProductionCommand(smelter.Id, ProductionRecipe.SmeltSteel, 2));
         smelter.ProductionCyclesCompleted = 1;
 
         var restored = SimulationSerializer.LoadFromJson(SimulationSerializer.SaveToJson(sim));
@@ -112,6 +176,10 @@ public class ProductionControlTests
         Assert.True(restoredSmelter.ProductionPaused);
         Assert.Equal(3, restoredSmelter.ProductionLimit);
         Assert.Equal(1, restoredSmelter.ProductionCyclesCompleted);
+        Assert.False(restoredSmelter.AutoProductionEnabled);
+        var order = Assert.Single(restoredSmelter.ProductionQueue);
+        Assert.Equal(ProductionRecipe.SmeltSteel, order.Recipe);
+        Assert.Equal(2, order.Quantity);
         Assert.False(restoredSmelter.CanProduce);
     }
 }

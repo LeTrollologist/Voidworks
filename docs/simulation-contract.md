@@ -119,12 +119,22 @@ Rules:
 
 ## Machine production controls
 
-Machines expose `ProductionPaused`, `ProductionLimit` (-1 = unlimited), and
-`ProductionCyclesCompleted`. `SetProductionPausedCommand` and
-`SetProductionLimitCommand` validate the machine and limit before applying.
-Limits gate **new** cycles only: output that already finished still ejects, and
-in-progress work freezes until production resumes. Controls are persisted in save
-format version 5.
+Machines expose `ProductionPaused`, `ProductionLimit` (-1 = unlimited),
+`ProductionCyclesCompleted`, `AutoProductionEnabled`, and a bounded
+`ProductionQueue` of recipe orders (`ProductionOrder`). Commands:
+`SetProductionPausedCommand`, `SetProductionLimitCommand`,
+`QueueProductionCommand`, `ClearProductionQueueCommand`, and
+`SetAutoProductionCommand`.
+
+- An empty queue falls back to automatic production when enabled.
+- A non-empty queue must match the next recipe; mismatched or unsupported orders
+  idle the machine rather than produce the wrong item.
+- Limits gate **new** cycles only: finished output still ejects, and in-progress
+  work freezes when paused.
+- Ice processors choose water or propellant per queued order.
+- `ProductionDiagnostics.GetBlockReason` explains idle states: offline, no power,
+  paused, limit reached, empty manual queue, unsupported order, or missing inputs.
+- Controls and queues are persisted in save format version 6.
 
 ## Diagnostics
 
@@ -162,14 +172,15 @@ Debug window.
 
 ## Save format
 
-`SimulationSerializer.CurrentSaveFormatVersion` is **5**.
+`SimulationSerializer.CurrentSaveFormatVersion` is **6**.
 
-- Version 0 (legacy, no explicit version), 1, 2, 3, and 4 remain readable.
+- Version 0 (legacy, no explicit version), 1, 2, 3, 4, and 5 remain readable.
 - Version 3 adds job `State`, `FailedAttempts`, `LastFailureReason`, `BlockedReason`,
   and `RetryNotBeforeSimTime`.
 - Version 4 adds job material/tool reservations (`ReservedMaterialIds`).
 - Version 5 adds machine `ProductionPaused`, `ProductionLimit`, and
   `ProductionCyclesCompleted`.
+- Version 6 adds `AutoProductionEnabled` and the machine `ProductionQueue`.
 - Older saves migrate by deriving state from the legacy completion flags and
   resetting retry bookkeeping and material reservations; jobs in old saves therefore
   load as `Queued` unless they were completed or cancelled.

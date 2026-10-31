@@ -334,6 +334,49 @@ public sealed class InspectionPanel
                         : selectedMachine.ProductionLimit.ToString();
                     ImGui.TextDisabled(
                         $"Production cycles {selectedMachine.ProductionCyclesCompleted} | limit {limitText}");
+
+                    ProductionRecipe? defaultRecipe = selectedMachine.Type switch
+                    {
+                        MachineType.MiningLaser => ProductionRecipe.MineOre,
+                        MachineType.SmelterRefinery => ProductionRecipe.SmeltSteel,
+                        MachineType.ComponentFabricator => ProductionRecipe.FabricateComponent,
+                        MachineType.IceProcessor => selectedMachine.ProduceFuelCanisters
+                            ? ProductionRecipe.ProcessFuel
+                            : ProductionRecipe.ProcessWater,
+                        MachineType.HydroponicsBay => ProductionRecipe.GrowFood,
+                        _ => null
+                    };
+                    if (defaultRecipe.HasValue)
+                    {
+                        if (ImGui.Button("Queue +1"))
+                        {
+                            SetCommandStatus(sim.ExecuteCommand(new QueueProductionCommand(
+                                selectedMachine.Id, defaultRecipe.Value, 1)));
+                        }
+
+                        ImGui.SameLine();
+                        if (ImGui.Button("Queue +5"))
+                        {
+                            SetCommandStatus(sim.ExecuteCommand(new QueueProductionCommand(
+                                selectedMachine.Id, defaultRecipe.Value, 5)));
+                        }
+
+                        ImGui.SameLine();
+                        if (ImGui.Button("Clear Queue"))
+                        {
+                            SetCommandStatus(sim.ExecuteCommand(new ClearProductionQueueCommand(
+                                selectedMachine.Id)));
+                        }
+
+                        ImGui.SameLine();
+                        ImGui.TextDisabled($"{selectedMachine.QueuedCycles} queued");
+                    }
+
+                    if (ImGui.Button(selectedMachine.AutoProductionEnabled ? "Auto: ON" : "Auto: OFF"))
+                    {
+                        SetCommandStatus(sim.ExecuteCommand(new SetAutoProductionCommand(
+                            selectedMachine.Id, !selectedMachine.AutoProductionEnabled)));
+                    }
                 }
 
                 ImGui.Spacing();

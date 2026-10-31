@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using Voidworks.Sim.Ship;
 
 namespace Voidworks.Sim.Machinery;
@@ -92,9 +94,65 @@ public sealed class Machine
     public bool ProductionPaused { get; set; }
     public int ProductionLimit { get; set; } = -1;
     public int ProductionCyclesCompleted { get; set; }
+    public bool AutoProductionEnabled { get; set; } = true;
+    public int MaxQueuedCycles { get; set; } = 50;
+    public List<ProductionOrder> ProductionQueue { get; } = new();
+
+    public int QueuedCycles => ProductionQueue.Sum(order => order.Quantity);
 
     public bool CanProduce => !ProductionPaused &&
         (ProductionLimit < 0 || ProductionCyclesCompleted < ProductionLimit);
+
+    public bool SupportsRecipe(ProductionRecipe recipe) => Type switch
+    {
+        MachineType.MiningLaser => recipe == ProductionRecipe.MineOre,
+        MachineType.SmelterRefinery => recipe == ProductionRecipe.SmeltSteel,
+        MachineType.ComponentFabricator => recipe == ProductionRecipe.FabricateComponent,
+        MachineType.IceProcessor => recipe is ProductionRecipe.ProcessFuel or ProductionRecipe.ProcessWater,
+        MachineType.HydroponicsBay => recipe == ProductionRecipe.GrowFood,
+        _ => false
+    };
+
+    /// <summary>
+    /// Whether a new cycle of this recipe may start. An empty queue falls back to
+    /// automatic production; a non-empty queue must match the next order.
+    /// </summary>
+    public bool CanStartCycle(ProductionRecipe recipe)
+    {
+        if (!CanProduce || !SupportsRecipe(recipe))
+            return false;
+        if (ProductionQueue.Count == 0)
+            return AutoProductionEnabled;
+        return ProductionQueue[0].Recipe == recipe;
+    }
+
+    /// <summary>Records a completed cycle and consumes one queued order cycle.</summary>
+    public void CompleteCycle(ProductionRecipe recipe)
+    {
+        ProductionCyclesCompleted++;
+        if (ProductionQueue.Count > 0 && ProductionQueue[0].Recipe == recipe)
+        {
+            ProductionQueue[0].Quantity--;
+            if (ProductionQueue[0].Quantity <= 0)
+                ProductionQueue.RemoveAt(0);
+        }
+    }
+
+    public bool EnqueueProduction(ProductionRecipe recipe, int cycles)
+    {
+        if (!SupportsRecipe(recipe) || cycles <= 0)
+            return false;
+        if (QueuedCycles + cycles > MaxQueuedCycles)
+            return false;
+
+        if (ProductionQueue.Count > 0 && ProductionQueue[^1].Recipe == recipe)
+            ProductionQueue[^1].Quantity += cycles;
+        else
+            ProductionQueue.Add(new ProductionOrder(recipe, cycles));
+        return true;
+    }
+
+    public void ClearProductionQueue() => ProductionQueue.Clear();
 
     // Hydroponics Bay
     public double WaterStoredLiters { get; set; } = 10.0;
@@ -277,7 +335,7 @@ public sealed class Machine
 
     private void TickSmelter(double dt)
     {
-        if (!CanProduce)
+        if (!CanStartCycle(ProductionRecipe.SmeltSteel))
             return;
 
         if (IronOreStored > 0)
@@ -288,14 +346,14 @@ public sealed class Machine
                 SmeltProgressSeconds = 0.0;
                 IronOreStored--;
                 SteelPlatesProduced++;
-                ProductionCyclesCompleted++;
+                CompleteCycle(ProductionRecipe.SmeltSteel);
             }
         }
     }
 
     private void TickHydroponics(ShipTile tile, double dt)
     {
-        if (!CanProduce)
+        if (!CanStartCycle(ProductionRecipe.GrowFood))
             return;
 
         if (WaterStoredLiters <= 0.0 || tile.IsVacuumSink)
@@ -326,7 +384,7 @@ public sealed class Machine
         {
             GrowthProgressSeconds -= GrowthCycleSeconds;
             FoodRationsProduced++;
-            ProductionCyclesCompleted++;
+            CompleteCycle(ProductionRecipe.GrowFood);
         }
     }
 }

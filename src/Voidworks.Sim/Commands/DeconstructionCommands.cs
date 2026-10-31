@@ -27,6 +27,10 @@ public sealed record DeconstructTileCommand(
 
         try
         {
+            if (!ConstructionCommandValidation.IsReachable(simulation, Target))
+                return SimulationCommandResult.Fail("Unreachable",
+                    $"No crew member can reach a tile adjacent to {Target}.");
+
             Job job = Job.CreateDeconstructTile(Target, WorkSeconds);
             simulation.JobManager.PostJob(job);
             return SimulationCommandResult.Ok($"Queued deconstruction of {tile} at {Target}.", job.Id);
@@ -56,6 +60,10 @@ public sealed record DismantleMachineCommand(
 
         try
         {
+            if (!ConstructionCommandValidation.IsReachable(simulation, Target))
+                return SimulationCommandResult.Fail("Unreachable",
+                    $"No crew member can reach a tile adjacent to {Target}.");
+
             Job job = Job.CreateDismantleMachine(Target, machine.Type, WorkSeconds);
             simulation.JobManager.PostJob(job);
             return SimulationCommandResult.Ok($"Queued dismantling of {machine.Type} at {Target}.", job.Id);

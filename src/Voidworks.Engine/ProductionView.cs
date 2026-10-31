@@ -38,6 +38,17 @@ public sealed class ProductionView
                     ? $"limit {machine.ProductionCyclesCompleted}/{machine.ProductionLimit}"
                     : $"cycles {machine.ProductionCyclesCompleted}";
             ImGui.TextDisabled($"   {Describe(machine)} | {control}");
+            if (machine.ProductionQueue.Count > 0)
+            {
+                string queued = string.Join(", ", machine.ProductionQueue
+                    .Take(4)
+                    .Select(order => $"{order.Recipe} x{order.Quantity}"));
+                ImGui.TextDisabled($"   Queue: {queued} ({machine.QueuedCycles} cycles)");
+            }
+
+            string? blockReason = ProductionDiagnostics.GetBlockReason(sim, machine);
+            if (!string.IsNullOrWhiteSpace(blockReason))
+                ImGui.TextColored(new float4(1.0f, 0.55f, 0.25f, 1.0f), $"   {blockReason}");
         }
     }
 
