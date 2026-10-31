@@ -3,6 +3,7 @@ using Brutal.ImGuiApi;
 using Brutal.Numerics;
 using Voidworks.Sim;
 using Voidworks.Sim.Machinery;
+using Voidworks.Sim.Plumbing;
 using Voidworks.Sim.Ship;
 
 namespace Voidworks.Engine;
@@ -11,6 +12,25 @@ public sealed class ProductionView
 {
     public void Render(SimulationState sim, ref Machine? selectedMachine, ref GridCoord? selectedTile)
     {
+        var power = sim.PowerGridSolver;
+        ImGui.TextDisabled(
+            $"Power {power.TotalGenerationKW:F0}/{power.TotalDemandKW:F0} kW | " +
+            $"unserved {power.TotalUnservedDemandKW:F0} kW | brownouts {power.BrownoutMachineCount}");
+
+        var plumbing = sim.PlumbingSolver;
+        ImGui.TextDisabled(
+            $"Coolant {plumbing.TotalCoolantFlowRateLitersPerSecond:F2} L/s | " +
+            $"leak {plumbing.TotalCoolantLeakRateLitersPerSecond:F2} L/s | " +
+            $"{plumbing.CoolantStoredLiters:F0} L | propellant {plumbing.TotalPropellantFlowRateKgPerSec:F2} kg/s");
+
+        string? coolantIssue = PlumbingDiagnostics.ExplainCoolant(sim);
+        if (!string.IsNullOrWhiteSpace(coolantIssue))
+            ImGui.TextColored(new float4(1.0f, 0.55f, 0.25f, 1.0f), $"Coolant: {coolantIssue}");
+
+        string? propellantIssue = PlumbingDiagnostics.ExplainPropellant(sim);
+        if (!string.IsNullOrWhiteSpace(propellantIssue))
+            ImGui.TextColored(new float4(1.0f, 0.55f, 0.25f, 1.0f), $"Propellant: {propellantIssue}");
+
         ImGui.TextColored(new float4(0.4f, 1.0f, 0.8f, 1.0f), $"PRODUCTION ({sim.Machines.Count})");
         if (sim.Machines.Count == 0)
             ImGui.TextDisabled("No machinery installed.");

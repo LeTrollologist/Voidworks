@@ -22,7 +22,7 @@ testable behavior. Rendering, input, and platform code must not change these rul
   8. Release jobs assigned to crew that are dead or incapacitated.
   9. Emergency scan (`ScanWorldForEmergencies`), which posts missing breach jobs.
   10. Scenario objective and win/loss evaluation.
-  11. `SimTime += dt`, crew vital-transition events, optional invariant validation.
+  11. `SimTime += dt`, crew vital-transition events, life-support warning evaluation, optional invariant validation.
 
 Consequences:
 
@@ -155,8 +155,24 @@ Machines expose `ProductionPaused`, `ProductionLimit` (-1 = unlimited),
 
 `SimulationState.Events` is a bounded `SimulationEventLog` (512 entries by default).
 It records job posting, reservation, start, blocking, retry scheduling, completion,
-cancellation, failure, crew death, and crew incapacitation with simulation time and
-optional job/crew/machine ids. The log is session-only and is not part of saves.
+cancellation, failure, crew death, crew incapacitation, and life-support warnings with
+simulation time and optional job/crew/machine ids. The log is session-only and is not
+part of saves.
+
+`PowerDiagnostics.ExplainMachinePower` reports why a consumer has no power: offline,
+no source in its conductive network, SCRAMed reactor with depleted batteries,
+depleted batteries, no delivered power, or a brownout with the ship-wide unserved
+demand. The machine inspector shows this explanation next to the power status.
+
+`PlumbingDiagnostics` explains coolant and propellant faults for the production view:
+missing reactor/radiator/pipes, a severed coolant loop, dry coolant, unpowered pumps,
+radiators without space exposure, no coolant flow, leaks, missing propellant or fuel
+lines, flameout, and zero propellant flow.
+
+Life-support warnings use the `LifeSupportWarning` event kind and are deduplicated per
+active condition (per crew oxygen/hunger/thirst, and per-tile CO₂). A cleared condition
+is removed from the active set, so a recurrence raises a new warning. The alert feed
+maps these events to the `Life support` warning category.
 
 `SimulationInvariants.Validate` provides development checks for states that cannot
 be valid:
@@ -180,10 +196,10 @@ enable this. Normal play leaves it off.
 
 `SimulationState.GetAlerts` converts the recent event history into a bounded,
 player-facing feed (`SimulationAlertFeed`). Crew deaths, crew incapacitation, and
-failed jobs are critical; blocked jobs and rejected commands are warnings; retry
-scheduling is informational. The engine renders this feed in the Alerts window and
-exposes jobs, reservations, routes, utilities, and machine state in the Simulation
-Debug window.
+failed jobs are critical; blocked jobs, rejected commands, and life-support warnings
+are warnings; retry scheduling is informational. The engine renders this feed in the
+Alerts window and exposes jobs, reservations, routes, utilities, and machine state in
+the Simulation Debug window.
 
 ## Save format
 

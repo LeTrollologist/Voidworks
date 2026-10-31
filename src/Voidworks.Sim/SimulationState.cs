@@ -41,6 +41,7 @@ public sealed class SimulationState : IJobWorldContext
     public SimulationEventLog Events => JobManager.Events;
 
     private readonly Dictionary<Guid, CrewVitalSnapshot> _crewVitals = new();
+    private readonly HashSet<string> _activeLifeSupportWarnings = new();
 
     private readonly record struct CrewVitalSnapshot(bool IsAlive, bool IsIncapacitated);
 
@@ -144,7 +145,49 @@ public sealed class SimulationState : IJobWorldContext
 
         SimTime += dt;
         RecordCrewVitalChanges();
+        UpdateLifeSupportWarnings();
         ThrowIfInvariantViolations();
+    }
+
+    private void UpdateLifeSupportWarnings()
+    {
+        var current = new HashSet<string>();
+
+        foreach (var agent in Crew)
+        {
+            var crew = agent.Crew;
+            if (!crew.Physiology.IsAlive)
+                continue;
+
+            Check($"o2:{crew.Id}", crew.Physiology.OxygenSaturation < 60.0,
+                $"{crew.Name} oxygen saturation is {crew.Physiology.OxygenSaturation:F0}%.", crew.Id);
+            Check($"food:{crew.Id}", crew.Physiology.Hunger > 80.0,
+                $"{crew.Name} is starving (hunger {crew.Physiology.Hunger:F0}%).", crew.Id);
+            Check($"water:{crew.Id}", crew.Physiology.Thirst > 80.0,
+                $"{crew.Name} is severely dehydrated (thirst {crew.Physiology.Thirst:F0}%).", crew.Id);
+
+            if (Grid.IsInBounds(crew.Position))
+            {
+                var tile = Grid[crew.Position];
+                Check($"co2:{crew.Position.X},{crew.Position.Y}", tile.Atmosphere.CarbonDioxide > 1.0,
+                    $"CO2 is elevated at {crew.Position} ({tile.Atmosphere.CarbonDioxide:F2} mol).", crew.Id);
+            }
+        }
+
+        foreach (var warning in _activeLifeSupportWarnings.Where(key => !current.Contains(key)).ToList())
+            _activeLifeSupportWarnings.Remove(warning);
+
+        void Check(string key, bool active, string message, Guid crewId)
+        {
+            if (!active)
+                return;
+
+            current.Add(key);
+            if (_activeLifeSupportWarnings.Add(key))
+            {
+                Events.Add(SimTime, SimulationEventKind.LifeSupportWarning, message, crewId: crewId);
+            }
+        }
     }
 
     private void RecordCrewVitalChanges()

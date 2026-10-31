@@ -45,12 +45,14 @@ The goal is a simulation where machinery, resources, atmosphere, and people depe
 - Coolant loop linking reactor heat management with external radiator fins.
 - Propellant delivery from fuel tanks to the main engine.
 - Coolant-loss scenarios that can overheat the reactor and trigger an emergency SCRAM.
+- System diagnostics explain severed coolant loops, missing pipes, propellant starvation, pump power loss, and radiator exposure problems in the production and inspection views.
 
 ### Life support and agriculture
 
 - Oxygen generation and CO₂ scrubbing.
 - Hydroponics that use water and room CO₂ to grow food and release oxygen.
 - Resource-dependent life-support systems that create meaningful operational trade-offs.
+- Life-support warnings for low oxygen, elevated CO₂, starvation, and dehydration appear in the alert feed once per active condition, clear when resolved, and re-alert if the condition returns.
 
 ### Autonomous crew
 
@@ -142,7 +144,7 @@ Run the crew hazard response scenario without opening a window:
 dotnet run --project src/Voidworks.Game/Voidworks.Game.csproj -- --headless --scenario crew-hazard-response
 ```
 
-The available scenario ids are `derelict-crisis`, `asteroid-expedition`, `hull-breach`, `crew-assistance`, `crew-hazard-response`, and `industrial-progression`. A headless scenario without a tick limit runs until it completes, fails, or reaches its time limit. Each command above accepts the same argument form; `dotnet run` requires the `--` separator before application arguments.
+The available scenario ids are `derelict-crisis`, `asteroid-expedition`, `hull-breach`, `crew-assistance`, `crew-hazard-response`, `industrial-progression`, and `cascade-crisis`. A headless scenario without a tick limit runs until it completes, fails, or reaches its time limit. Each command above accepts the same argument form; `dotnet run` requires the `--` separator before application arguments.
 
 Advance a scenario by an exact number of 0.1-second simulation ticks and save it:
 
@@ -197,7 +199,7 @@ These loops create dependencies rather than isolated features. A broken coolant 
 
 ## Testing
 
-The automated test suite covers simulation systems including atmosphere exchange, hull breaches, crew survival and psychology, route diagnostics, autonomous breach repair, the end-to-end scenarios, assistance requests, save/load behavior, autonomous construction and dismantling, and manufacturing and industrial progression.
+The automated test suite covers simulation systems including atmosphere exchange, hull breaches, crew survival and psychology, route diagnostics, autonomous breach repair, the end-to-end scenarios, assistance requests, save/load behavior, autonomous construction and dismantling, manufacturing and industrial progression, and interconnected-system diagnostics, including ten-minute life-support runs and the combined-failure cascade scenario.
 
 Run the test suite locally:
 

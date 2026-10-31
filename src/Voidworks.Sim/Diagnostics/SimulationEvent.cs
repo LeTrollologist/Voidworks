@@ -14,6 +14,7 @@ public enum SimulationEventKind
     JobFailed,
     CrewDied,
     CrewIncapacitated,
+    LifeSupportWarning,
     CommandApplied,
     CommandRejected,
     MaterialReturned

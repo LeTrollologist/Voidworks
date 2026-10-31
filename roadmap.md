@@ -104,25 +104,25 @@ Simulation update ordering, job lifecycle and retry rules, invariant checks, sav
 
 ### Power
 - [x] Initial grid behavior, load distribution, and brownout work.
-- [ ] Test damaged/disconnected cables, priority loads, batteries, and recovery after power returns.
-- [ ] Explain why a machine is unpowered and what upstream component failed.
+- [x] Test damaged/disconnected cables, priority loads, batteries, and recovery after power returns.
+- [x] Explain why a machine is unpowered and what upstream component failed.
 
 ### Atmosphere and life support
-- [ ] Test room boundaries, doors, breaches, pressure equalization, and isolation.
-- [ ] Verify oxygen generation, CO2 scrubbing, hydroponics, food, water, and crew consumption over long runs.
-- [ ] Add clear consequences and alerts for failing life support.
+- [x] Test room boundaries, doors, breaches, pressure equalization, and isolation.
+- [x] Verify oxygen generation, CO2 scrubbing, hydroponics, food, water, and crew consumption over long runs.
+- [x] Add clear consequences and alerts for failing life support.
 
 ### Plumbing and thermal systems
-- [ ] Test pipe damage, leaks, isolation, pumps, flow limits, and repair.
-- [ ] Test coolant loss through reactor overheating and shutdown to recovery.
-- [ ] Test propellant delivery, tank depletion, and engine behavior.
+- [x] Test pipe damage, leaks, isolation, pumps, flow limits, and repair.
+- [x] Test coolant loss through reactor overheating and shutdown to recovery.
+- [x] Test propellant delivery, tank depletion, and engine behavior.
 - [ ] Show flow direction, connected components, blocked sections, and shortages.
 
 ### Cross-system failures
 - [x] Initial systemic failure and recovery scenarios exist.
-- [ ] Add scenarios combining multiple failures, such as breach plus power loss or coolant leak plus crew shortage.
-- [ ] Verify hazards have understandable causes, escalation, and recovery paths.
-- [ ] Test that crew behavior responds appropriately without creating endless retries.
+- [x] Add scenarios combining multiple failures, such as breach plus power loss or coolant leak plus crew shortage.
+- [x] Verify hazards have understandable causes, escalation, and recovery paths.
+- [x] Test that crew behavior responds appropriately without creating endless retries.
 
 **Exit criteria:** failures propagate consistently, are diagnosable, and can be recovered from through player decisions and crew work.
 

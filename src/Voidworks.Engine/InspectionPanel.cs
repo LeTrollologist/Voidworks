@@ -11,6 +11,7 @@ using Voidworks.Sim.Jobs;
 using Voidworks.Sim.Machinery;
 using Voidworks.Sim.Navigation;
 using Voidworks.Sim.Persistence;
+using Voidworks.Sim.Power;
 using Voidworks.Sim.Ship;
 
 namespace Voidworks.Engine;
@@ -307,6 +308,9 @@ public sealed class InspectionPanel
                         ? new float4(1.0f, 0.55f, 0.2f, 1.0f)
                         : new float4(0.2f, 1.0f, 0.4f, 1.0f);
                 ImGui.TextColored(machinePowerColor, $"Power Status: {powerStatus}");
+                string? powerReason = PowerDiagnostics.ExplainMachinePower(sim, selectedMachine);
+                if (!string.IsNullOrWhiteSpace(powerReason))
+                    ImGui.TextColored(new float4(1.0f, 0.55f, 0.25f, 1.0f), powerReason);
 
                 if (ImGui.Button(selectedMachine.IsOnline ? "Turn Machine OFF" : "Turn Machine ON"))
                 {

@@ -48,6 +48,7 @@ public static class SimulationAlertFeed
                 SimulationEventKind.JobBlocked => (AlertSeverity.Warning, "Job blocked"),
                 SimulationEventKind.CommandRejected => (AlertSeverity.Warning, "Command rejected"),
                 SimulationEventKind.JobRetryScheduled => (AlertSeverity.Info, "Job retry scheduled"),
+                SimulationEventKind.LifeSupportWarning => (AlertSeverity.Warning, "Life support"),
                 _ => null
             };
             if (classification is not { } alert)

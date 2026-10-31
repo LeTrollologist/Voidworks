@@ -522,6 +522,77 @@ public static class ScenarioCatalog
         return scenario;
     }
 
+    public static Scenario CreateCascadeCrisis()
+    {
+        var scenario = new Scenario(
+            "cascade-crisis",
+            "Cascade Crisis",
+            "A micrometeorite strike has breached the hull while the coolant loop is severed and life support is offline. Seal the breach, restore coolant circulation, and bring oxygen generation back online before the crew is lost.",
+            timeLimitSeconds: 240.0);
+
+        scenario.SetupAction = sim =>
+        {
+            if (sim.Grid.Width > 16 && sim.Grid.Height > 4)
+                sim.Grid.BreachTile(16, 4);
+
+            var reactor = sim.Machines.FirstOrDefault(machine => machine.Type == MachineType.Reactor);
+            var radiator = sim.Machines.FirstOrDefault(machine => machine.Type == MachineType.Radiator);
+            sim.PlumbingSolver.CoolantPipes.Clear();
+            if (reactor != null)
+            {
+                reactor.IsOnline = true;
+                reactor.IsScrammed = false;
+                reactor.CoreTemperatureKelvin = 520.0;
+                reactor.HeatGenerationKW = 4.0;
+                sim.PlumbingSolver.CoolantPipes.Add(reactor.Position);
+            }
+            if (radiator != null)
+            {
+                radiator.IsOnline = true;
+                if (sim.Grid.Width > 12 && sim.Grid.Height > 9)
+                    radiator.Position = new GridCoord(9, 8);
+                sim.PlumbingSolver.CoolantPipes.Add(radiator.Position);
+            }
+
+            var oxygen = sim.Machines.FirstOrDefault(machine => machine.Type == MachineType.OxygenGenerator);
+            if (oxygen != null)
+                oxygen.IsOnline = false;
+
+            var battery = sim.Machines.FirstOrDefault(machine => machine.Type == MachineType.Battery);
+            if (battery != null)
+                battery.BatteryStoredKWh = Math.Min(battery.BatteryStoredKWh, 5.0);
+
+            sim.JobManager.ScanWorldForEmergencies(sim.Grid);
+        };
+
+        scenario.Objectives.Add(new ScenarioObjective(
+            "seal-breach",
+            "Seal the Hull Breach",
+            "Equip EVA gear and weld the punctured hull before the compartment vents.",
+            sim => sim.Grid.AllTiles().All(tile => !tile.IsBreached)));
+
+        scenario.Objectives.Add(new ScenarioObjective(
+            "restore-coolant",
+            "Restore Coolant Circulation",
+            "Reconnect the reactor coolant loop to an exposed radiator.",
+            sim =>
+            {
+                var reactor = sim.Machines.FirstOrDefault(machine => machine.Type == MachineType.Reactor);
+                var radiator = sim.Machines.FirstOrDefault(machine => machine.Type == MachineType.Radiator);
+                return reactor != null && radiator != null &&
+                       sim.PlumbingSolver.IsCoolantLoopConnected(reactor.Position, radiator.Position);
+            }));
+
+        scenario.Objectives.Add(new ScenarioObjective(
+            "restore-oxygen",
+            "Restore Oxygen Generation",
+            "Bring the oxygen generator back online and keep it powered.",
+            sim => sim.Machines.Any(machine =>
+                machine.Type == MachineType.OxygenGenerator && machine.IsOnline && machine.IsPowered)));
+
+        return scenario;
+    }
+
     public static Scenario? CreateById(string id) => id.ToLowerInvariant() switch
     {
         "derelict-crisis" => CreateTheDerelictCrisis(),
@@ -530,6 +601,7 @@ public static class ScenarioCatalog
         "crew-assistance" => CreateCrewAssistance(),
         "crew-hazard-response" => CreateCrewHazardResponse(),
         "industrial-progression" => CreateIndustrialProgression(),
+        "cascade-crisis" => CreateCascadeCrisis(),
         _ => null
     };
 }

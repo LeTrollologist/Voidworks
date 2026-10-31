@@ -26,10 +26,11 @@ public class ScenarioSmokeTests
         new object[] { "hull-breach" },
         new object[] { "crew-assistance" },
         new object[] { "crew-hazard-response" },
-        new object[] { "industrial-progression" }
+        new object[] { "industrial-progression" },
+        new object[] { "cascade-crisis" }
     };
 
-    private static SimulationState CreateScenarioSim()
+    internal static SimulationState CreateScenarioSim()
     {
         var grid = new ShipGrid(24, 12);
         grid.BuildRoom(1, 1, 22, 10, TileType.HullWall);
