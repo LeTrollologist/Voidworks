@@ -29,6 +29,7 @@ The goal is a simulation where machinery, resources, atmosphere, and people depe
 - Deconstruction orders let crew dismantle machinery and strip walls, doors, floors, or hull panels with a welding torch to reclaim structural steel and machine components.
 - Construction orders reserve their required plates, components, and welding torch; cancelled or failed orders return carried consumables to the world and release tool reservations for other orders.
 - Management panel with crew roster, job cancellation/reassignment/priority controls, stockpile totals, and production status; overlay legends, three save slots, and alerts that jump to the affected tile or crew member.
+- Production controls pause or cap machine cycles without discarding finished output; queued construction orders draw a placement footprint, and invalid build sites explain why no action is available.
 
 
 - Player actions are validated simulation commands for construction, utilities, machine controls, doors, job priority and cancellation, and coolant transfer; rejected actions return explicit failure codes and are recorded in the event history.
@@ -208,7 +209,7 @@ Focused headless scenario sweep:
 dotnet test --filter FullyQualifiedName~ScenarioSmokeTests
 ```
 
-Every shipped scenario starts from a shared fixture, runs for 30 simulated seconds, and a long-run variant advances until the scenario terminates with invariant checks enabled on every tick. Simulation update ordering, the job lifecycle and retry policy, development invariants, save format version 4, and known limitations are documented in [docs/simulation-contract.md](docs/simulation-contract.md).
+Every shipped scenario starts from a shared fixture, runs for 30 simulated seconds, and a long-run variant advances until the scenario terminates with invariant checks enabled on every tick. Simulation update ordering, the job lifecycle and retry policy, development invariants, save format version 5, and known limitations are documented in [docs/simulation-contract.md](docs/simulation-contract.md).
 
 The passing-test count describes the reported development milestone and is not a guarantee that every future commit will pass. Run the tests against the revision you have checked out.
 

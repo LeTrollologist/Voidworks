@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Voidworks.Sim\Voidworks.Sim.csproj" />
+    <ProjectReference Include="..\..\src\Voidworks.Engine\Voidworks.Engine.csproj" />
   </ItemGroup>
 
 </Project>

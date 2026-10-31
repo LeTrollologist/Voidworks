@@ -7,3 +7,5 @@ obj/
 .vscode/
 *.voidworks.json
 imgui.ini
+gui-out.txt
+gui-err.txt

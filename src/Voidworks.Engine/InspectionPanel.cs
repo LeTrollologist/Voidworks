@@ -301,6 +301,41 @@ public sealed class InspectionPanel
                     _commandStatus = result.Message;
                 }
 
+                bool productionMachine = selectedMachine.Type is MachineType.MiningLaser or
+                    MachineType.SmelterRefinery or MachineType.ComponentFabricator or
+                    MachineType.IceProcessor or MachineType.HydroponicsBay;
+                if (productionMachine)
+                {
+                    if (ImGui.Button(selectedMachine.ProductionPaused ? "Resume Production" : "Pause Production"))
+                    {
+                        SetCommandStatus(sim.ExecuteCommand(new SetProductionPausedCommand(
+                            selectedMachine.Id, !selectedMachine.ProductionPaused)));
+                    }
+
+                    ImGui.SameLine();
+                    if (ImGui.Button("Limit +10"))
+                    {
+                        int limit = selectedMachine.ProductionLimit < 0
+                            ? 10
+                            : selectedMachine.ProductionLimit + 10;
+                        SetCommandStatus(sim.ExecuteCommand(new SetProductionLimitCommand(
+                            selectedMachine.Id, limit)));
+                    }
+
+                    ImGui.SameLine();
+                    if (ImGui.Button("No Limit"))
+                    {
+                        SetCommandStatus(sim.ExecuteCommand(new SetProductionLimitCommand(
+                            selectedMachine.Id, -1)));
+                    }
+
+                    string limitText = selectedMachine.ProductionLimit < 0
+                        ? "unlimited"
+                        : selectedMachine.ProductionLimit.ToString();
+                    ImGui.TextDisabled(
+                        $"Production cycles {selectedMachine.ProductionCyclesCompleted} | limit {limitText}");
+                }
+
                 ImGui.Spacing();
                 if (selectedMachine.Type == MachineType.Reactor)
                 {
@@ -866,6 +901,12 @@ public sealed class InspectionPanel
                 ExecuteConstruction(sim, new InstallMachineCommand(coord, MachineType.MainEngine, 8, 2, 20.0));
             if (ImGui.Button("Build Radiator (5 steel)"))
                 ExecuteConstruction(sim, new InstallMachineCommand(coord, MachineType.Radiator, 5, 0, 10.0));
+        }
+        else
+        {
+            ImGui.TextDisabled(tile.Type == TileType.Space
+                ? "Space tiles need an adjacent floor tile before construction."
+                : $"No construction actions available for {tile.Type}.");
         }
     }
 

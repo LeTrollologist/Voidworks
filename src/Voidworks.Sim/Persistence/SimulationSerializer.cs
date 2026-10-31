@@ -19,12 +19,11 @@ namespace Voidworks.Sim.Persistence;
 public static class SimulationSerializer
 {
     /// <summary>
-    /// Current save format. Version 3 added job lifecycle state, failed-attempt
-    /// counts, blocked reasons, and retry timestamps. Version 4 adds job material
-    /// and tool reservations. Versions 0-3 remain readable; older jobs migrate with
-    /// no lifecycle bookkeeping or material reservations.
+    /// Current save format. Version 3 added job lifecycle state, version 4 added job
+    /// material/tool reservations, and version 5 adds machine production controls.
+    /// Versions 0-4 remain readable with older features defaulted.
     /// </summary>
-    public const int CurrentSaveFormatVersion = 4;
+    public const int CurrentSaveFormatVersion = 5;
     public const int MinimumSupportedSaveFormatVersion = 0;
     private const long MaximumSavedGridTileCount = 1_000_000;
 
@@ -177,7 +176,10 @@ public static class SimulationSerializer
                 MiningRange = m.MiningRange,
                 IceProcessingProgress = m.IceProcessingProgressSeconds,
                 IceProcessingCycle = m.IceProcessingCycleSeconds,
-                IsIceProcessingInProgress = m.IsIceProcessingInProgress
+                IsIceProcessingInProgress = m.IsIceProcessingInProgress,
+                ProductionPaused = m.ProductionPaused,
+                ProductionLimit = m.ProductionLimit,
+                ProductionCyclesCompleted = m.ProductionCyclesCompleted
             }).ToList(),
             Cables = sim.Cables.Select(c => new CoordDto { X = c.X, Y = c.Y }).ToList(),
             CoolantPipes = sim.PlumbingSolver.CoolantPipes.Select(c => new CoordDto { X = c.X, Y = c.Y }).ToList(),
@@ -351,7 +353,10 @@ public static class SimulationSerializer
                 MiningRange = mDto.MiningRange > 0 ? mDto.MiningRange : 6,
                 IceProcessingProgressSeconds = mDto.IceProcessingProgress,
                 IceProcessingCycleSeconds = mDto.IceProcessingCycle,
-                IsIceProcessingInProgress = mDto.IsIceProcessingInProgress
+                IsIceProcessingInProgress = mDto.IsIceProcessingInProgress,
+                ProductionPaused = mDto.ProductionPaused,
+                ProductionLimit = mDto.ProductionLimit,
+                ProductionCyclesCompleted = mDto.ProductionCyclesCompleted
             };
             m.SetPowerFraction(mDto.PowerFraction ?? (mDto.IsPowered ? 1.0 : 0.0));
             if (mDto.TargetAsteroidX.HasValue && mDto.TargetAsteroidY.HasValue)
@@ -593,6 +598,8 @@ public static class SimulationSerializer
                 throw new InvalidDataException($"Machine '{machine.Name}' contains an invalid power fraction.");
             if (machine.TargetAsteroidX.HasValue != machine.TargetAsteroidY.HasValue)
                 throw new InvalidDataException($"Machine '{machine.Name}' contains an incomplete asteroid coordinate.");
+            if (machine.ProductionLimit < -1 || machine.ProductionCyclesCompleted < 0)
+                throw new InvalidDataException($"Machine '{machine.Name}' contains invalid production controls.");
             if (machine.TargetAsteroidX.HasValue)
                 ValidateCoordinate(machine.TargetAsteroidX.Value, machine.TargetAsteroidY!.Value,
                     dto.GridWidth, dto.GridHeight, "asteroid target");
@@ -1073,6 +1080,9 @@ public sealed class MachineSaveDto
     public bool IsOnline { get; set; }
     public bool IsPowered { get; set; }
     public double? PowerFraction { get; set; }
+    public bool ProductionPaused { get; set; }
+    public int ProductionLimit { get; set; } = -1;
+    public int ProductionCyclesCompleted { get; set; }
     public double PowerOutput { get; set; }
     public double RatedPowerOutput { get; set; }
     public double PowerDemand { get; set; }

@@ -32,7 +32,12 @@ public sealed class ProductionView
                 _ => ("ONLINE", new float4(0.4f, 1.0f, 0.5f, 1.0f))
             };
             ImGui.TextColored(color, label);
-            ImGui.TextDisabled($"   {Describe(machine)}");
+            string control = machine.ProductionPaused
+                ? "PAUSED"
+                : machine.ProductionLimit >= 0
+                    ? $"limit {machine.ProductionCyclesCompleted}/{machine.ProductionLimit}"
+                    : $"cycles {machine.ProductionCyclesCompleted}";
+            ImGui.TextDisabled($"   {Describe(machine)} | {control}");
         }
     }
 

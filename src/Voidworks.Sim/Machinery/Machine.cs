@@ -88,6 +88,14 @@ public sealed class Machine
     public double SmeltProgressSeconds { get; set; } = 0.0;
     public double SmeltCycleSeconds { get; set; } = 4.0;
 
+    // Player production controls. Limit -1 means unlimited cycles.
+    public bool ProductionPaused { get; set; }
+    public int ProductionLimit { get; set; } = -1;
+    public int ProductionCyclesCompleted { get; set; }
+
+    public bool CanProduce => !ProductionPaused &&
+        (ProductionLimit < 0 || ProductionCyclesCompleted < ProductionLimit);
+
     // Hydroponics Bay
     public double WaterStoredLiters { get; set; } = 10.0;
     public int FoodRationsProduced { get; set; } = 0;
@@ -269,6 +277,9 @@ public sealed class Machine
 
     private void TickSmelter(double dt)
     {
+        if (!CanProduce)
+            return;
+
         if (IronOreStored > 0)
         {
             SmeltProgressSeconds += dt;
@@ -277,12 +288,16 @@ public sealed class Machine
                 SmeltProgressSeconds = 0.0;
                 IronOreStored--;
                 SteelPlatesProduced++;
+                ProductionCyclesCompleted++;
             }
         }
     }
 
     private void TickHydroponics(ShipTile tile, double dt)
     {
+        if (!CanProduce)
+            return;
+
         if (WaterStoredLiters <= 0.0 || tile.IsVacuumSink)
             return;
 
@@ -311,6 +326,7 @@ public sealed class Machine
         {
             GrowthProgressSeconds -= GrowthCycleSeconds;
             FoodRationsProduced++;
+            ProductionCyclesCompleted++;
         }
     }
 }

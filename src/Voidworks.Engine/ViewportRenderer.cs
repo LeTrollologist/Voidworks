@@ -5,6 +5,7 @@ using Brutal.Numerics;
 using Voidworks.Sim;
 using Voidworks.Sim.Crew;
 using Voidworks.Sim.Items;
+using Voidworks.Sim.Jobs;
 using Voidworks.Sim.Machinery;
 using Voidworks.Sim.Ship;
 
@@ -309,6 +310,7 @@ public sealed class ViewportRenderer
             var hMin = camera.WorldToScreen(new float2(hoveredTile.Value.X, hoveredTile.Value.Y), viewportCenter);
             var hMax = hMin + new float2(camera.Zoom, camera.Zoom);
             drawList.AddRect(hMin, hMax, ColorHover, 2f, 0, 1.5f);
+            DrawConstructionPreview(drawList, sim, camera, viewportCenter, hoveredTile.Value);
         }
 
         if (selectedTile.HasValue && grid.IsInBounds(selectedTile.Value))
@@ -316,6 +318,45 @@ public sealed class ViewportRenderer
             var sMin = camera.WorldToScreen(new float2(selectedTile.Value.X, selectedTile.Value.Y), viewportCenter);
             var sMax = sMin + new float2(camera.Zoom, camera.Zoom);
             drawList.AddRect(sMin, sMax, 0xFF00FFFF, 2f, 0, 2.5f);
+            if (hoveredTile != selectedTile)
+                DrawConstructionPreview(drawList, sim, camera, viewportCenter, selectedTile.Value);
+        }
+    }
+
+    /// <summary>
+    /// Draws the queued construction/deconstruction footprint so players can see
+    /// what will occupy a tile before the crew finishes the work.
+    /// </summary>
+    private static void DrawConstructionPreview(
+        ImDrawListPtr drawList,
+        SimulationState sim,
+        Camera2D camera,
+        float2 viewportCenter,
+        GridCoord tile)
+    {
+        var order = sim.JobManager.ActiveJobs.FirstOrDefault(job =>
+            job.Type is JobType.Construct or JobType.Deconstruct && job.TargetCoord == tile);
+        if (order == null)
+            return;
+
+        uint fill = order.Type == JobType.Deconstruct
+            ? 0x30FF8000u   // translucent orange
+            : order.ConstructMachineType.HasValue
+                ? 0x3020D0FFu // translucent cyan
+                : 0x3000FF40u; // translucent green
+
+        var pMin = camera.WorldToScreen(new float2(tile.X, tile.Y), viewportCenter);
+        var pMax = pMin + new float2(camera.Zoom, camera.Zoom);
+        drawList.AddRectFilled(pMin, pMax, fill);
+        drawList.AddRect(pMin, pMax, fill | 0xFF000000, 2f, 0, 2f);
+
+        if (camera.Zoom >= 32f)
+        {
+            string label = order.Type == JobType.Deconstruct
+                ? $"DEMO {order.WorkRemainingSeconds:F1}s"
+                : $"{order.ConstructTileType?.ToString() ?? order.ConstructMachineType?.ToString() ?? "BUILD"} " +
+                  $"{order.WorkRemainingSeconds:F1}s";
+            drawList.AddText(pMin + new float2(3f, 3f), 0xFFFFFFFF, label);
         }
     }
 

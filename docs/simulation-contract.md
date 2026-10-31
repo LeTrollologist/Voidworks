@@ -117,6 +117,15 @@ Rules:
 - Debug-only breach creation and patching still mutate tiles directly from the
   engine; they are intentionally outside the player command surface.
 
+## Machine production controls
+
+Machines expose `ProductionPaused`, `ProductionLimit` (-1 = unlimited), and
+`ProductionCyclesCompleted`. `SetProductionPausedCommand` and
+`SetProductionLimitCommand` validate the machine and limit before applying.
+Limits gate **new** cycles only: output that already finished still ejects, and
+in-progress work freezes until production resumes. Controls are persisted in save
+format version 5.
+
 ## Diagnostics
 
 `SimulationState.Events` is a bounded `SimulationEventLog` (512 entries by default).
@@ -153,12 +162,14 @@ Debug window.
 
 ## Save format
 
-`SimulationSerializer.CurrentSaveFormatVersion` is **4**.
+`SimulationSerializer.CurrentSaveFormatVersion` is **5**.
 
-- Version 0 (legacy, no explicit version), 1, 2, and 3 remain readable.
+- Version 0 (legacy, no explicit version), 1, 2, 3, and 4 remain readable.
 - Version 3 adds job `State`, `FailedAttempts`, `LastFailureReason`, `BlockedReason`,
   and `RetryNotBeforeSimTime`.
 - Version 4 adds job material/tool reservations (`ReservedMaterialIds`).
+- Version 5 adds machine `ProductionPaused`, `ProductionLimit`, and
+  `ProductionCyclesCompleted`.
 - Older saves migrate by deriving state from the legacy completion flags and
   resetting retry bookkeeping and material reservations; jobs in old saves therefore
   load as `Queued` unless they were completed or cancelled.

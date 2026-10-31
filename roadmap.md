@@ -12,7 +12,7 @@ Simulation update ordering, job lifecycle and retry rules, invariant checks, sav
 
 ## Recent Progress
 
-- **2026-10-27:** Baseline re-established at 122 passing tests. Jobs now have explicit lifecycle states, full reservation release, bounded retry/backoff, and a bounded event history; construction orders reserve materials and return them on cancellation or failure; development invariants cover ownership, placement, door connectivity, room boundaries, and utility connectivity; saves use format v4 with backward migration; all six scenarios plus the full industrial chain have headless smoke and long-run coverage; player actions flow through validated commands with explicit failure codes; and the management UI now provides a crew roster, job controls, stockpile and production views, overlay legends, save slots, alert focus, and debug views. The rules are documented in [`docs/simulation-contract.md`](docs/simulation-contract.md).
+- **2026-10-27:** Baseline re-established at 135 passing tests. Jobs now have explicit lifecycle states, full reservation release, bounded retry/backoff, and a bounded event history; construction orders reserve materials and return them on cancellation or failure; development invariants cover ownership, placement, door connectivity, room boundaries, and utility connectivity; saves use format v5 with backward migration; all six scenarios plus the full industrial chain have headless smoke and long-run coverage; player actions flow through validated commands with explicit failure codes; the management UI provides a crew roster, job controls, stockpile and production views, overlay legends, save slots, alert focus, and debug views; queued construction renders a placement footprint; and production can be paused or cycle-limited. The rules are documented in [`docs/simulation-contract.md`](docs/simulation-contract.md).
 
 
 ## Phase 0: Establish a Reliable Baseline
@@ -65,7 +65,7 @@ Simulation update ordering, job lifecycle and retry rules, invariant checks, sav
 ## Phase 3: Complete the Core Management UI
 
 ### Ship interaction
-- [ ] Add clear selection, hover, placement previews, and invalid-placement reasons.
+- [x] Add clear selection, hover, placement previews, and invalid-placement reasons.
 - [x] Separate world rendering, utility overlays, selection, and UI presentation.
 - [ ] Verify zoom, resize, high-DPI input, and mouse-to-world coordinate mapping.
 - [ ] Ensure UI input does not also issue unintended world commands.
