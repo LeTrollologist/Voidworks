@@ -17,6 +17,7 @@ string? requestedScenarioId = null;
 string? loadPath = null;
 string? savePath = null;
 int? requestedTicks = null;
+bool sandboxRequested = false;
 for (int i = 0; i < args.Length; i++)
 {
     if (args[i].Equals("--scenario", StringComparison.OrdinalIgnoreCase))
@@ -45,10 +46,17 @@ for (int i = 0; i < args.Length; i++)
             throw new ArgumentException("Expected a non-negative whole number after --ticks.");
         requestedTicks = parsedTicks;
     }
+    else if (args[i].Equals("--sandbox", StringComparison.OrdinalIgnoreCase))
+    {
+        sandboxRequested = true;
+    }
 }
 
 if (loadPath != null && requestedScenarioId != null)
     throw new ArgumentException("Use the scenario stored in the save file, or start a new --scenario run; the options cannot be combined.");
+
+if (requestedScenarioId == null && loadPath == null && !sandboxRequested)
+    requestedScenarioId = ScenarioCatalog.PrimaryScenarioId;
 
 bool forceConsole = args.Contains("--console", StringComparer.OrdinalIgnoreCase) ||
                     args.Contains("--headless", StringComparer.OrdinalIgnoreCase) ||
@@ -162,7 +170,7 @@ sim.Crew.Add(new CrewAI(pilot));
 if (requestedScenarioId != null)
 {
     var scenario = ScenarioCatalog.CreateById(requestedScenarioId)
-        ?? throw new ArgumentException($"Unknown scenario '{requestedScenarioId}'. Choose derelict-crisis, asteroid-expedition, hull-breach, crew-assistance, crew-hazard-response, or industrial-progression.");
+        ?? throw new ArgumentException($"Unknown scenario '{requestedScenarioId}'. Choose derelict-crisis, asteroid-expedition, hull-breach, crew-assistance, crew-hazard-response, industrial-progression, or cascade-crisis.");
     scenario.Setup(sim);
     sim.ActiveScenario = scenario;
     Console.WriteLine($"[Scenario] {scenario.Title}: {scenario.Description}");
@@ -179,7 +187,9 @@ if (loadPath != null)
     Console.WriteLine($"[Save] Loaded simulation from {Path.GetFullPath(loadPath)}.");
 }
 
-Console.WriteLine("[Status] Ship power grid, plumbing conduits, life support, and industry online.");
+Console.WriteLine(sim.ActiveScenario != null
+    ? "[Status] Mission setup complete. Review the briefing for current system state."
+    : "[Status] Ship power grid, plumbing conduits, life support, and industry online.");
 Console.WriteLine($"[Status] Crew Complement: {string.Join(", ", sim.Crew.Select(agent => $"{agent.Crew.Name} ({agent.Crew.Role})"))}.");
 Console.WriteLine("[Status] Exterior asteroid field detected off starboard bow (Iron & Ice ore).");
 
@@ -197,6 +207,7 @@ if (!forceConsole)
     catch (Exception ex)
     {
         Console.WriteLine($"[Window Warning] Could not launch graphical window ({ex.Message}).");
+        Console.WriteLine(ex);
         Console.WriteLine("[Window Warning] Falling back to automated headless console simulation...\n");
     }
 }

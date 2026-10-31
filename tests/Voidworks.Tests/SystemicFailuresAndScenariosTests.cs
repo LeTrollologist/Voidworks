@@ -895,13 +895,14 @@ public class SystemicFailuresAndScenariosTests
         oxygenGenerator.IsOnline = true;
         oxygenGenerator.IsPowered = true;
 
+        // Construction objective: install the auxiliary battery.
+        sim.Machines.Add(new Machine(MachineType.Battery, new GridCoord(5, 3)) { BatteryStoredKWh = 10.0 });
+
         // Update scenario
         scenario.Update(sim, 0.1);
 
-        // Coolant loop objective and thermal stability objective should now be completed
-        Assert.True(scenario.Objectives[0].IsCompleted);
-        Assert.True(scenario.Objectives[1].IsCompleted);
-        Assert.True(scenario.Objectives[2].IsCompleted);
+        // Every objective, including the auxiliary battery, should now be complete.
+        Assert.All(scenario.Objectives, objective => Assert.True(objective.IsCompleted, objective.Id));
         Assert.True(scenario.IsCompleted);
     }
 }

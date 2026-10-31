@@ -201,6 +201,29 @@ are warnings; retry scheduling is informational. The engine renders this feed in
 Alerts window and exposes jobs, reservations, routes, utilities, and machine state in
 the Simulation Debug window.
 
+## Scenario presentation and vertical slice
+
+The primary scenario is `derelict-crisis`. Launching the game without `--scenario`
+or `--load` starts it; `--sandbox` keeps the free-play world. Default display scale
+uses a monitor-sized initial window. Scenario objectives
+may expose a `StatusProvider` that reports live progress text (temperature, coolant
+loop state, crew health, battery count) without making the objective itself
+non-binary. Objective status is derived on update and is not saved; terminal
+scenario state and elapsed time are persisted.
+
+The engine pauses and blocks world input while the opening briefing or terminal
+mission report is open. Transitioning to complete or failed appends a
+`ScenarioCompleted` or `ScenarioFailed` event, which the alert feed surfaces as
+informational or critical respectively. The mission report lists objective state,
+the failure reason, and the most recent events. Recovery uses the existing save
+slots; continuing observation does not clear the recorded outcome.
+
+```
+Input gate: ui.WantCaptureMouse || briefing/report visible -> no world click, pan, or zoom
+Layout: telemetry bar and toolbar share the column left of the inspector
+DPI: cursor coordinates scale from window size to ImGui display size
+```
+
 ## Save format
 
 `SimulationSerializer.CurrentSaveFormatVersion` is **7**.

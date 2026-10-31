@@ -36,6 +36,9 @@ The goal is a simulation where machinery, resources, atmosphere, and people depe
 
 - Player actions are validated simulation commands for construction, utilities, machine controls, doors, job priority and cancellation, and coolant transfer; rejected actions return explicit failure codes and are recorded in the event history.
 - A player-facing alert feed (critical, warning, informational) is derived from simulation events, and a debug panel exposes active jobs, reservations, crew routes, utility flow, and machine state.
+- The primary mission opens with a paused briefing, a live objective tracker with per-objective status, contextual next-step guidance, and a mission-complete or mission-failed report with final events.
+- The default launch starts the `derelict-crisis` vertical slice. Pass `--sandbox` to start without a mission.
+- The workstation uses a responsive fixed-panel layout and scales cursor coordinates from window space to ImGui display space for high-DPI displays; world input is blocked whenever a panel, briefing, or mission report owns the pointer.
 
 - Buildable machinery includes component fabricators, ice processors, mining lasers, smelters, batteries, reactors, oxygen generators, carbon scrubbers, hydroponics bays, fuel tanks, radiators, and main engines. Power cables and fluid pipes still need to be laid separately.
 
@@ -114,6 +117,12 @@ Run the graphical application:
 dotnet run --project src/Voidworks.Game/Voidworks.Game.csproj
 ```
 
+This starts the primary `derelict-crisis` mission with its opening briefing. Start without a mission:
+
+```powershell
+dotnet run --project src/Voidworks.Game/Voidworks.Game.csproj -- --sandbox
+```
+
 Launch the crew assistance scenario in the graphical application:
 
 ```powershell
@@ -144,7 +153,7 @@ Run the crew hazard response scenario without opening a window:
 dotnet run --project src/Voidworks.Game/Voidworks.Game.csproj -- --headless --scenario crew-hazard-response
 ```
 
-The available scenario ids are `derelict-crisis`, `asteroid-expedition`, `hull-breach`, `crew-assistance`, `crew-hazard-response`, `industrial-progression`, and `cascade-crisis`. A headless scenario without a tick limit runs until it completes, fails, or reaches its time limit. Each command above accepts the same argument form; `dotnet run` requires the `--` separator before application arguments.
+The available scenario ids are `derelict-crisis`, `asteroid-expedition`, `hull-breach`, `crew-assistance`, `crew-hazard-response`, `industrial-progression`, and `cascade-crisis`. A headless run without `--scenario` or `--load` also starts the primary mission; add `--sandbox` for the free-play diagnostic run. A headless scenario without a tick limit runs until it completes, fails, or reaches its time limit. Each command above accepts the same argument form; `dotnet run` requires the `--` separator before application arguments.
 
 Advance a scenario by an exact number of 0.1-second simulation ticks and save it:
 
@@ -199,7 +208,7 @@ These loops create dependencies rather than isolated features. A broken coolant 
 
 ## Testing
 
-The automated test suite covers simulation systems including atmosphere exchange, hull breaches, crew survival and psychology, route diagnostics, autonomous breach repair, the end-to-end scenarios, assistance requests, save/load behavior, autonomous construction and dismantling, manufacturing and industrial progression, and interconnected-system diagnostics, including ten-minute life-support runs and the combined-failure cascade scenario.
+The automated test suite covers simulation systems including atmosphere exchange, hull breaches, crew survival and psychology, route diagnostics, autonomous breach repair, the end-to-end scenarios, assistance requests, save/load behavior, autonomous construction and dismantling, manufacturing and industrial progression, interconnected-system diagnostics, scenario presentation and guidance, and responsive UI input/layout, including ten-minute life-support runs and the combined-failure cascade scenario.
 
 Run the test suite locally:
 

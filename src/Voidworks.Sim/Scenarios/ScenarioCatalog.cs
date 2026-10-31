@@ -11,6 +11,7 @@ namespace Voidworks.Sim.Scenarios;
 
 public static class ScenarioCatalog
 {
+    public const string PrimaryScenarioId = "derelict-crisis";
     public static Scenario CreateTheDerelictCrisis()
     {
         var s = new Scenario(
@@ -59,13 +60,30 @@ public static class ScenarioCatalog
             var oxygenGenerator = sim.Machines.FirstOrDefault(m => m.Type == MachineType.OxygenGenerator);
             if (oxygenGenerator != null)
                 oxygenGenerator.IsOnline = false;
+
+            // The crew must be able to fabricate an auxiliary battery without waiting
+            // on a full mining chain. These materials are the scenario's construction budget.
+            var storageTile = new GridCoord(3, 4);
+            if (sim.Grid.IsInBounds(storageTile))
+            {
+                for (int plate = 0; plate < 4; plate++)
+                    sim.JobManager.AddItem(new Item(ItemType.SteelPlate, storageTile));
+                sim.JobManager.AddItem(new Item(ItemType.MachineComponent, storageTile));
+            }
         };
 
-        s.FailureEvaluator = sim => sim.Machines
-            .Where(m => m.Type == MachineType.Reactor)
-            .Any(m => m.IsScrammed)
-                ? "The reactor SCRAMed before the coolant loop was restored."
+        s.FailureEvaluator = sim =>
+        {
+            if (sim.Machines.Where(m => m.Type == MachineType.Reactor).Any(m => m.IsScrammed))
+                return "The reactor SCRAMed before the coolant loop was restored.";
+
+            var criticalCrew = sim.Crew
+                .Select(agent => agent.Crew)
+                .FirstOrDefault(crew => crew.Physiology.IsAlive && crew.Physiology.Health <= 50.0);
+            return criticalCrew != null
+                ? $"{criticalCrew.Name} health fell to {criticalCrew.Physiology.Health:F0}%."
                 : null;
+        };
 
         s.Objectives.Add(new ScenarioObjective(
             "coolant-loop",
@@ -78,6 +96,16 @@ public static class ScenarioCatalog
                 if (reactor == null || radiator == null) return false;
 
                 return sim.PlumbingSolver.IsCoolantLoopConnected(reactor.Position, radiator.Position);
+            },
+            sim =>
+            {
+                var reactor = sim.Machines.FirstOrDefault(m => m.Type == MachineType.Reactor);
+                var radiator = sim.Machines.FirstOrDefault(m => m.Type == MachineType.Radiator);
+                if (reactor == null) return "Reactor missing.";
+                if (radiator == null) return "Radiator missing.";
+                return sim.PlumbingSolver.IsCoolantLoopConnected(reactor.Position, radiator.Position)
+                    ? "Loop connected."
+                    : $"Loop severed between reactor {reactor.Position} and radiator {radiator.Position}.";
             }));
 
         s.Objectives.Add(new ScenarioObjective(
@@ -88,19 +116,39 @@ public static class ScenarioCatalog
             {
                 var reactor = sim.Machines.FirstOrDefault(m => m.Type == MachineType.Reactor);
                 return reactor != null && !reactor.IsScrammed && reactor.CoreTemperatureKelvin < 500.0;
+            },
+            sim =>
+            {
+                var reactor = sim.Machines.FirstOrDefault(m => m.Type == MachineType.Reactor);
+                if (reactor == null) return "Reactor missing.";
+                return reactor.IsScrammed
+                    ? $"Core SCRAMed at {reactor.CoreTemperatureKelvin:F0} K."
+                    : $"Core at {reactor.CoreTemperatureKelvin:F0} K (target below 500 K).";
             }));
 
         s.Objectives.Add(new ScenarioObjective(
             "life-support",
             "Restore Life Support",
             "Bring the oxygen generator online and keep it powered.",
-            sim => sim.Machines.Any(m => m.Type == MachineType.OxygenGenerator && m.IsOnline && m.IsPowered)));
+            sim => sim.Machines.Any(m => m.Type == MachineType.OxygenGenerator && m.IsOnline && m.IsPowered),
+            sim =>
+            {
+                var oxygen = sim.Machines.FirstOrDefault(m => m.Type == MachineType.OxygenGenerator);
+                if (oxygen == null) return "Oxygen generator missing.";
+                if (!oxygen.IsOnline) return "Oxygen generator is switched off.";
+                return oxygen.IsPowered ? "Oxygen generator online." : "Oxygen generator has no power.";
+            }));
 
         s.Objectives.Add(new ScenarioObjective(
-            "crew-survival",
-            "Keep the Crew Alive & Healthy",
-            "Ensure all crew members remain alive with > 50% health.",
-            sim => sim.Crew.Count > 0 && sim.Crew.All(c => c.Crew.Physiology.IsAlive && c.Crew.Physiology.Health > 50.0)));
+            "auxiliary-power",
+            "Install an Auxiliary Battery",
+            "Build a second battery (4 steel + 1 machine component) to stabilize the power reserve.",
+            sim => sim.Machines.Count(m => m.Type == MachineType.Battery) >= 2,
+            sim =>
+            {
+                int batteries = sim.Machines.Count(m => m.Type == MachineType.Battery);
+                return $"Batteries installed: {batteries}/2.";
+            }));
 
         return s;
     }

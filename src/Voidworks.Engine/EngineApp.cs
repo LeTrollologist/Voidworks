@@ -21,6 +21,7 @@ public sealed class EngineApp
     private readonly Camera2D _camera = new();
     private readonly ViewportRenderer _renderer = new();
     private readonly InspectionPanel _ui = new();
+    private readonly ScenarioOverlay _scenarioOverlay = new();
 
     private OverlayMode _overlayMode = OverlayMode.Normal;
     private GridCoord? _selectedTile = new GridCoord(3, 3);
@@ -30,6 +31,7 @@ public sealed class EngineApp
     private float2 _lastMousePos;
     private bool _isPanning = false;
     private bool _spaceWasPressed = false;
+    private bool _leftWasPressed = false;
 
     public unsafe void Run(SimulationState sim)
     {
@@ -42,6 +44,15 @@ public sealed class EngineApp
 
         int initialWidth = 1600;
         int initialHeight = 900;
+        if (Glfw.PrimaryMonitor is { } monitor)
+        {
+            monitor.GetMonitorWorkArea(out int2 workAreaPosition, out int2 workAreaSize);
+            if (workAreaSize.X > 0 && workAreaSize.Y > 0)
+            {
+                initialWidth = Math.Min(initialWidth, Math.Max(960, workAreaSize.X - 80));
+                initialHeight = Math.Min(initialHeight, Math.Max(600, workAreaSize.Y - 80));
+            }
+        }
 
         var window = Glfw.CreateWindow(new GlfwWindow.CreateInfo
         {
@@ -85,14 +96,18 @@ public sealed class EngineApp
         // Setup mouse wheel scroll event for camera zoom
         window.OnScroll += (win, offset) =>
         {
-            if (!io.WantCaptureMouse)
-            {
-                var cur = win.CursorPos;
-                var mouseV = new float2((float)cur.X, (float)cur.Y);
-                var size = win.Size;
-                var center = new float2(size.X * 0.5f, size.Y * 0.5f);
-                _camera.ZoomAt((float)offset.Y, mouseV, center);
-            }
+            if (!WorldInputPolicy.CanControlWorld(io.WantCaptureMouse, false, _scenarioOverlay.BlocksWorldInput))
+                return;
+
+            var cur = win.CursorPos;
+            var size = win.Size;
+            var rawMouse = new float2((float)cur.X, (float)cur.Y);
+            var windowSize = new float2(size.X, size.Y);
+            var displaySize = io.DisplaySize;
+            if (displaySize.X <= 0f || displaySize.Y <= 0f)
+                displaySize = windowSize;
+            var mouseV = DisplayMetrics.CursorToDisplay(rawMouse, displaySize, windowSize);
+            _camera.ZoomAt((float)offset.Y, mouseV, DisplayMetrics.ViewportCenter(displaySize));
         };
 
         var stopwatch = Stopwatch.StartNew();
@@ -107,8 +122,10 @@ public sealed class EngineApp
             lastTime = currentTime;
 
             // Spacebar pause toggle
+            bool modalOpen = _scenarioOverlay.BlocksWorldInput;
             bool spaceDown = window.GetKey(GlfwKey.Space) == GlfwKeyAction.Press;
-            if (spaceDown && !_spaceWasPressed && !io.WantCaptureKeyboard)
+            if (spaceDown && !_spaceWasPressed &&
+                WorldInputPolicy.CanControlWorldKeyboard(io.WantCaptureKeyboard, modalOpen))
             {
                 sim.IsPaused = !sim.IsPaused;
             }
@@ -119,15 +136,23 @@ public sealed class EngineApp
 
             // 2. Handle input for camera pan and tile/crew/machine selection
             var winSize = window.Size;
-            var viewportSize = new float2(winSize.X, winSize.Y);
-            var viewportCenter = viewportSize * 0.5f;
+            var windowSizeF = new float2(winSize.X, winSize.Y);
+            var displaySize = io.DisplaySize;
+            if (displaySize.X <= 0f || displaySize.Y <= 0f)
+                displaySize = windowSizeF;
 
             var cursor = window.CursorPos;
-            var mousePos = new float2((float)cursor.X, (float)cursor.Y);
+            var mousePos = DisplayMetrics.CursorToDisplay(
+                new float2((float)cursor.X, (float)cursor.Y),
+                displaySize,
+                windowSizeF);
+            var viewportCenter = DisplayMetrics.ViewportCenter(displaySize);
 
-            // Middle mouse panning
+            // Middle mouse panning. Capture is sampled before the UI frame, so a drag
+            // that starts over a panel must not move the world underneath it.
             bool middleDown = window.GetMouseButton(GlfwMouseButton.Middle) == GlfwButtonAction.Press;
-            if (middleDown)
+            if (middleDown &&
+                WorldInputPolicy.CanStartPan(io.WantCaptureMouse, modalOpen, _isPanning))
             {
                 if (_isPanning)
                 {
@@ -144,31 +169,37 @@ public sealed class EngineApp
 
             // Hover and selection
             GridCoord? hoveredCoord = null;
-            if (!io.WantCaptureMouse)
+            bool canControlWorld = WorldInputPolicy.CanControlWorld(
+                io.WantCaptureMouse, false, modalOpen);
+            if (canControlWorld)
             {
                 hoveredCoord = _camera.ScreenToTile(mousePos, viewportCenter);
 
-                if (window.GetMouseButton(GlfwMouseButton.Left) == GlfwButtonAction.Press)
+                bool leftDown = window.GetMouseButton(GlfwMouseButton.Left) == GlfwButtonAction.Press;
+                if (leftDown && !_leftWasPressed &&
+                    hoveredCoord.HasValue && sim.Grid.IsInBounds(hoveredCoord.Value))
                 {
-                    if (hoveredCoord.HasValue && sim.Grid.IsInBounds(hoveredCoord.Value))
+                    _selectedTile = hoveredCoord.Value;
+
+                    // Check if a crew member is on this tile
+                    var crewOnTile = sim.Crew.FirstOrDefault(c => c.Crew.Position == hoveredCoord.Value);
+                    if (crewOnTile != null)
                     {
-                        _selectedTile = hoveredCoord.Value;
+                        _selectedCrew = crewOnTile.Crew;
+                    }
 
-                        // Check if a crew member is on this tile
-                        var crewOnTile = sim.Crew.FirstOrDefault(c => c.Crew.Position == hoveredCoord.Value);
-                        if (crewOnTile != null)
-                        {
-                            _selectedCrew = crewOnTile.Crew;
-                        }
-
-                        // Check if a machine is on this tile
-                        var machOnTile = sim.Machines.FirstOrDefault(m => m.Position == hoveredCoord.Value);
-                        if (machOnTile != null)
-                        {
-                            _selectedMachine = machOnTile;
-                        }
+                    // Check if a machine is on this tile
+                    var machOnTile = sim.Machines.FirstOrDefault(m => m.Position == hoveredCoord.Value);
+                    if (machOnTile != null)
+                    {
+                        _selectedMachine = machOnTile;
                     }
                 }
+                _leftWasPressed = leftDown;
+            }
+            else
+            {
+                _leftWasPressed = window.GetMouseButton(GlfwMouseButton.Left) == GlfwButtonAction.Press;
             }
 
             // 3. ImGui Frame
@@ -178,7 +209,7 @@ public sealed class EngineApp
 
             // Render 2D Viewport into ImGui background
             var drawList = ImGui.GetBackgroundDrawList();
-            drawList.AddRectFilled(float2.Zero, viewportSize, _renderer.ColorSpace);
+            drawList.AddRectFilled(float2.Zero, displaySize, _renderer.ColorSpace);
 
             _renderer.Render(
                 drawList,
@@ -190,7 +221,9 @@ public sealed class EngineApp
                 _overlayMode);
 
             // Render interactive UI panels
+            _ui.HideForScenarioOverlay = _scenarioOverlay.BlocksWorldInput;
             _ui.Render(sim, ref _overlayMode, ref _selectedTile, ref _selectedCrew, ref _selectedMachine);
+            _scenarioOverlay.Render(sim);
             if (_ui.LoadRequestedPath is { } loadPath)
             {
                 try
@@ -215,6 +248,7 @@ public sealed class EngineApp
             ImGui.Render();
             glBackend.RenderDrawData(ImGui.GetDrawData());
             window.SwapBuffers();
+            UiText.ResetFrameArena();
         }
 
         glBackend.Dispose();

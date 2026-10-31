@@ -12,6 +12,7 @@ Simulation update ordering, job lifecycle and retry rules, invariant checks, sav
 
 ## Recent Progress
 
+- **2026-10-31:** Phase 5 diagnostics and the cascade scenario are complete. Phase 6 now has a default primary mission with a paused briefing, live objective status, contextual guidance, and a terminal mission report; 182 tests pass. World input is gated by UI capture (middle-click panel drags no longer pan), layout is responsive, and cursor mapping accounts for high-DPI display scaling. The primary mission now requires utility repair, life support, crew survival as a failure condition, and an auxiliary-battery construction order.
 - **2026-10-27:** Baseline re-established at 147 passing tests. Jobs have explicit lifecycle states, reservation release, bounded retry, and event history; construction reserves materials and returns them on cancellation; invariants cover ownership, placement, doors, rooms, and utilities; saves use format v7; all scenarios plus the industrial chain and built-machine lifecycle have headless coverage; player actions use validated commands; the management UI covers roster, jobs, stockpiles, production, overlays, alerts, and save slots; machines support recipe queues, pause/limits, wear, breakdown, and crew repair; and stockpiles are capacity-limited with life-support-first hauling priorities. The rules are documented in [`docs/simulation-contract.md`](docs/simulation-contract.md).
 
 
@@ -67,8 +68,8 @@ Simulation update ordering, job lifecycle and retry rules, invariant checks, sav
 ### Ship interaction
 - [x] Add clear selection, hover, placement previews, and invalid-placement reasons.
 - [x] Separate world rendering, utility overlays, selection, and UI presentation.
-- [ ] Verify zoom, resize, high-DPI input, and mouse-to-world coordinate mapping.
-- [ ] Ensure UI input does not also issue unintended world commands.
+- [x] Verify zoom, resize, high-DPI input, and mouse-to-world coordinate mapping.
+- [x] Ensure UI input does not also issue unintended world commands.
 
 ### Crew management
 - [ ] Add crew roster with role, vitals, skills, current job, and status.
@@ -130,13 +131,15 @@ Simulation update ordering, job lifecycle and retry rules, invariant checks, sav
 
 Use the existing `asteroid-expedition`, `derelict-crisis`, and emergency scenarios as foundations; consolidate or revise them as needed.
 
-- [ ] Define one primary scenario with a clear start state, objective, constraints, and end conditions.
-- [ ] Ensure the player must use crew, resources, construction, utilities, and life support to succeed.
-- [ ] Add a clear opening briefing and concise contextual guidance.
-- [ ] Show objective progress, important events, success, and failure.
-- [ ] Add recovery options where appropriate without removing consequences.
+- [x] Define one primary scenario with a clear start state, objective, constraints, and end conditions.
+- [x] Ensure the player must use crew, resources, construction, utilities, and life support to succeed.
+- [x] Add a clear opening briefing and concise contextual guidance.
+- [x] Show objective progress, important events, success, and failure.
+- [x] Add recovery options where appropriate without removing consequences.
 - [ ] Play through from a fresh start using only the UI.
 - [ ] Have a new player complete it without developer assistance; record confusion and failure points.
+
+The scripted path and confusion log live in [`docs/vertical-slice-playtest.md`](docs/vertical-slice-playtest.md).
 
 **Exit criteria:** a new player can start, understand the immediate problem, make meaningful decisions, and reach a satisfying outcome.
 

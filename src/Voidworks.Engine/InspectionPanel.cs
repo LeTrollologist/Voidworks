@@ -35,6 +35,12 @@ public sealed class InspectionPanel
     private bool _showManagementPanel = true;
     public string? LoadRequestedPath { get; private set; }
 
+    /// <summary>
+    /// Hide the workstation panels while a modal briefing or mission report owns the
+    /// screen. The world and overlay remain visible, and panels return on dismissal.
+    /// </summary>
+    public bool HideForScenarioOverlay { get; set; }
+
     public void Render(
         SimulationState sim,
         ref OverlayMode overlayMode,
@@ -43,6 +49,9 @@ public sealed class InspectionPanel
         ref Machine? selectedMachine)
     {
         LoadRequestedPath = null;
+        if (HideForScenarioOverlay)
+            return;
+
         RenderTopTelemetryBar(sim);
         RenderControlToolbar(sim, ref overlayMode);
         RenderInspectorSidebar(sim, selectedTile, selectedCrew, ref selectedMachine);
@@ -58,8 +67,9 @@ public sealed class InspectionPanel
 
     private void RenderTopTelemetryBar(SimulationState sim)
     {
-        ImGui.SetNextWindowPos(new float2(10f, 10f), ImGuiCond.Always);
-        ImGui.SetNextWindowSize(new float2(1250f, 85f), ImGuiCond.Always);
+        LayoutRect layout = WorkstationLayout.TopBar(ImGui.GetIO().DisplaySize);
+        ImGui.SetNextWindowPos(layout.Position, ImGuiCond.Always);
+        ImGui.SetNextWindowSize(layout.Size, ImGuiCond.Always);
 
         var flags = ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoTitleBar;
         if (ImGui.Begin("TelemetryBar", flags))
@@ -129,8 +139,9 @@ public sealed class InspectionPanel
 
     private void RenderControlToolbar(SimulationState sim, ref OverlayMode overlayMode)
     {
-        ImGui.SetNextWindowPos(new float2(10f, 105f), ImGuiCond.Always);
-        ImGui.SetNextWindowSize(new float2(1250f, 50f), ImGuiCond.Always);
+        LayoutRect layout = WorkstationLayout.Toolbar(ImGui.GetIO().DisplaySize);
+        ImGui.SetNextWindowPos(layout.Position, ImGuiCond.Always);
+        ImGui.SetNextWindowSize(layout.Size, ImGuiCond.Always);
 
         var flags = ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoTitleBar;
         if (ImGui.Begin("ControlToolbar", flags))
@@ -155,8 +166,15 @@ public sealed class InspectionPanel
             ImGui.SameLine();
             if (ImGui.Button(" 10x ")) sim.TimeScale = 10.0;
 
-            ImGui.SameLine(380f);
-            ImGui.TextDisabled("| Overlays:");
+            ImGui.SameLine(390f);
+            if (ImGui.Button(" Debug ")) _showDebugPanel = !_showDebugPanel;
+            ImGui.SameLine();
+            if (ImGui.Button(" Alerts ")) _showAlertsPanel = !_showAlertsPanel;
+            ImGui.SameLine();
+            if (ImGui.Button(" Mgmt ")) _showManagementPanel = !_showManagementPanel;
+
+            ImGui.Spacing();
+            ImGui.TextDisabled("Overlays:");
             ImGui.SameLine();
             if (ImGui.RadioButton("Ship View", overlayMode == OverlayMode.Normal)) overlayMode = OverlayMode.Normal;
             ImGui.SameLine();
@@ -173,23 +191,6 @@ public sealed class InspectionPanel
             if (ImGui.RadioButton("Hazards", overlayMode == OverlayMode.Hazards)) overlayMode = OverlayMode.Hazards;
             ImGui.SameLine();
             if (ImGui.RadioButton("Crew Paths", overlayMode == OverlayMode.CrewPaths)) overlayMode = OverlayMode.CrewPaths;
-
-            ImGui.SameLine(900f);
-            if (ImGui.Button(" Debug ")) _showDebugPanel = !_showDebugPanel;
-            ImGui.SameLine();
-            if (ImGui.Button(" Alerts ")) _showAlertsPanel = !_showAlertsPanel;
-            ImGui.SameLine();
-            if (ImGui.Button(" Mgmt ")) _showManagementPanel = !_showManagementPanel;
-
-            ImGui.SameLine(1085f);
-            if (ImGui.Button(" TRIGGER BREACH "))
-            {
-                if (sim.Grid.IsInBounds(14, 3))
-                {
-                    sim.Grid.BreachTile(14, 3);
-                    sim.JobManager.ScanWorldForEmergencies(sim.Grid);
-                }
-            }
         }
         ImGui.End();
     }
@@ -255,8 +256,9 @@ public sealed class InspectionPanel
         CrewMember? selectedCrew,
         ref Machine? selectedMachine)
     {
-        ImGui.SetNextWindowPos(new float2(1280f, 10f), ImGuiCond.Always);
-        ImGui.SetNextWindowSize(new float2(420f, 850f), ImGuiCond.Always);
+        LayoutRect layout = WorkstationLayout.Inspector(ImGui.GetIO().DisplaySize);
+        ImGui.SetNextWindowPos(layout.Position, ImGuiCond.Always);
+        ImGui.SetNextWindowSize(layout.Size, ImGuiCond.Always);
 
         if (ImGui.Begin("Inspector Panel", ImGuiWindowFlags.NoCollapse))
         {
@@ -669,14 +671,15 @@ public sealed class InspectionPanel
                 if (tile.IsBreached)
                 {
                     ImGui.TextColored(new float4(1.0f, 0.2f, 0.2f, 1.0f), "STATUS: HULL BREACHED (VENTING)");
-                    if (ImGui.Button("Emergency Patch"))
+                    ImGui.TextDisabled("Crew with EVA gear and a welding torch will patch the breach.");
+                    if (_showDebugPanel && ImGui.Button("Emergency Patch (debug)"))
                     {
                         tile.IsBreached = false;
                     }
                 }
-                else if (tile.Type == TileType.HullWall)
+                else if (tile.Type == TileType.HullWall && _showDebugPanel)
                 {
-                    if (ImGui.Button("Puncture Breach Here"))
+                    if (ImGui.Button("Puncture Breach Here (debug)"))
                     {
                         tile.IsBreached = true;
                         sim.JobManager.ScanWorldForEmergencies(sim.Grid);
@@ -802,25 +805,60 @@ public sealed class InspectionPanel
         var scenario = sim.ActiveScenario;
         if (scenario == null) return;
 
-        ImGui.TextColored(new float4(1.0f, 0.8f, 0.2f, 1.0f), $"SCENARIO: {scenario.Title.ToUpperInvariant()}");
-        ImGui.Text(scenario.Description);
+        ImGui.TextColored(new float4(1.0f, 0.8f, 0.2f, 1.0f), UiText.Im($"MISSION: {scenario.Title.ToUpperInvariant()}"));
+
+        int completed = scenario.Objectives.Count(objective => objective.IsCompleted);
+        int total = scenario.Objectives.Count;
+        if (total > 0)
+        {
+            ImGui.ProgressBar(
+                (float)completed / total,
+                new float2(320f, 16f),
+                UiText.Im($"{completed}/{total} objectives"));
+        }
 
         if (scenario.TimeLimitSeconds.HasValue)
         {
             double remaining = Math.Max(0.0, scenario.TimeLimitSeconds.Value - scenario.ElapsedSeconds);
-            ImGui.Text($"Time remaining: {remaining:F0}s");
+            var timeColor = remaining < 60.0
+                ? new float4(1.0f, 0.35f, 0.25f, 1.0f)
+                : new float4(0.85f, 0.85f, 0.85f, 1.0f);
+            ImGui.TextColored(timeColor, UiText.Im($"Time remaining: {ScenarioOverlay.FormatTime(remaining)}"));
         }
 
         foreach (var objective in scenario.Objectives)
         {
+            var color = objective.IsCompleted
+                ? new float4(0.4f, 1.0f, 0.5f, 1.0f)
+                : objective.IsFailed
+                    ? new float4(1.0f, 0.3f, 0.25f, 1.0f)
+                    : new float4(0.9f, 0.85f, 0.7f, 1.0f);
             string status = objective.IsCompleted ? "[DONE]" : objective.IsFailed ? "[FAILED]" : "[ ]";
-            ImGui.BulletText($"{status} {objective.Title}");
+            ImGui.TextColored(color, UiText.Im($"{status} {objective.Title}"));
+            if (!string.IsNullOrWhiteSpace(objective.Status) && !objective.IsCompleted)
+            {
+                ImGui.TextDisabled(UiText.Im("    " + objective.Status));
+            }
+        }
+
+        if (!scenario.IsCompleted && !scenario.IsFailed)
+        {
+            var hints = ScenarioGuidance.Build(sim);
+            if (hints.Count > 0)
+            {
+                ImGui.Spacing();
+                ImGui.TextColored(new float4(1.0f, 0.7f, 0.3f, 1.0f), "NEXT STEPS");
+                foreach (string hint in hints)
+                {
+                    ImGui.TextWrapped(UiText.Im("- " + hint));
+                }
+            }
         }
 
         if (scenario.IsCompleted)
             ImGui.TextColored(new float4(0.2f, 1.0f, 0.4f, 1.0f), "MISSION COMPLETE");
         else if (scenario.IsFailed)
-            ImGui.TextColored(new float4(1.0f, 0.2f, 0.2f, 1.0f), $"MISSION FAILED: {scenario.FailureReason ?? "unspecified failure"}");
+            ImGui.TextColored(new float4(1.0f, 0.2f, 0.2f, 1.0f), UiText.Im($"MISSION FAILED: {scenario.FailureReason ?? "unspecified failure"}"));
 
         ImGui.Separator();
     }

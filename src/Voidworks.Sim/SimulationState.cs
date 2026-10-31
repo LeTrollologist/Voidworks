@@ -141,7 +141,23 @@ public sealed class SimulationState : IJobWorldContext
         JobManager.ScanWorldForEmergencies(Grid, Machines);
 
         // 8. Update active scenario objectives and win/loss conditions
-        ActiveScenario?.Update(this, dt);
+        if (ActiveScenario is { } scenario)
+        {
+            bool wasCompleted = scenario.IsCompleted;
+            bool wasFailed = scenario.IsFailed;
+            scenario.Update(this, dt);
+
+            if (!wasCompleted && scenario.IsCompleted)
+            {
+                Events.Add(SimTime, SimulationEventKind.ScenarioCompleted,
+                    $"{scenario.Title} completed in {scenario.ElapsedSeconds:F0}s.");
+            }
+            else if (!wasFailed && scenario.IsFailed)
+            {
+                Events.Add(SimTime, SimulationEventKind.ScenarioFailed,
+                    $"{scenario.Title} failed: {scenario.FailureReason ?? "unspecified failure"}");
+            }
+        }
 
         SimTime += dt;
         RecordCrewVitalChanges();
