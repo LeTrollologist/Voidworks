@@ -38,7 +38,7 @@ public static class ScenarioCatalog
             if (radiator != null)
             {
                 radiator.IsOnline = true;
-                radiator.Position = new GridCoord(17, 2);
+                radiator.Position = FindExteriorRadiatorTile(sim, reactor?.Position.Y ?? 2, radiator.Position);
                 radiator.RadiatorCoolingKW = 40.0;
             }
 
@@ -151,6 +151,29 @@ public static class ScenarioCatalog
             }));
 
         return s;
+    }
+
+    /// <summary>
+    /// Places the derelict mission's radiator in space immediately outside the hull.
+    /// The default ship and the test fixture have different widths, so a hardcoded
+    /// coordinate could leave the radiator inside a sealed room where it cannot
+    /// reject heat.
+    /// </summary>
+    private static GridCoord FindExteriorRadiatorTile(SimulationState sim, int preferredY, GridCoord fallback)
+    {
+        if (preferredY >= 0 && preferredY < sim.Grid.Height)
+        {
+            for (int x = sim.Grid.Width - 1; x > 0; x--)
+            {
+                if (sim.Grid[x, preferredY].Type == TileType.Space &&
+                    sim.Grid[x - 1, preferredY].Type is TileType.HullWall or TileType.InteriorWall)
+                {
+                    return new GridCoord(x, preferredY);
+                }
+            }
+        }
+
+        return sim.Grid.IsInBounds(fallback) ? fallback : new GridCoord(0, 0);
     }
 
     public static Scenario CreateAsteroidExpedition()

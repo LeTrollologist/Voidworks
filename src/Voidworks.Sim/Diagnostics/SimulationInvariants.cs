@@ -178,7 +178,7 @@ public static class SimulationInvariants
                 Report("DuplicateMachinePosition",
                     $"Machine '{machine.Name}' shares tile {machine.Position} with another machine.");
             TileType tile = sim.Grid[machine.Position].Type;
-            if (tile is TileType.Space or TileType.Asteroid)
+            if (tile is TileType.Space or TileType.Asteroid && machine.Type != MachineType.Radiator)
                 Report("MachineOnInvalidTile",
                     $"Machine '{machine.Name}' at {machine.Position} is installed on {tile} instead of a floor tile.");
             if (!double.IsFinite(machine.CoreTemperatureKelvin) || machine.CoreTemperatureKelvin < 0.0)
@@ -211,7 +211,8 @@ public static class SimulationInvariants
                 continue;
             }
 
-            if (sim.Grid[pipe].Type is TileType.Space or TileType.Asteroid)
+            if (sim.Grid[pipe].Type is TileType.Space or TileType.Asteroid &&
+                !IsExternalRadiatorPipe(sim, pipe))
                 Report("UtilityOnInvalidTile",
                     $"Coolant pipe at {pipe} is installed on {sim.Grid[pipe].Type}.");
             else if (!HasUtilityConnection(sim, pipe, sim.PlumbingSolver.CoolantPipes))
@@ -262,6 +263,10 @@ public static class SimulationInvariants
                     $"{tile.Type} at {tile.Coord} is open to space; the hull boundary is incomplete.");
         }
     }
+
+    private static bool IsExternalRadiatorPipe(SimulationState sim, GridCoord pipe)
+        => sim.Machines.Any(machine => machine.Type == MachineType.Radiator &&
+            (machine.Position == pipe || machine.Position.Cardinals().Contains(pipe)));
 
     private static bool HasUtilityConnection(SimulationState sim, GridCoord coord, HashSet<GridCoord> network)
         => sim.Machines.Any(machine => machine.Position == coord) ||

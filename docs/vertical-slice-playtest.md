@@ -22,11 +22,12 @@ The run should take roughly 10-20 minutes at 1x-5x speed. The clock is paused wh
 2. Confirm the **Mission Briefing** window appears, the simulation is paused, and four objectives plus first priorities are listed.
 3. Press **BEGIN OPERATIONS**.
 4. Select tile `(15, 2)` and press **Lay Coolant Pipe**.
-5. Select tile `(16, 2)` and press **Lay Coolant Pipe**. The coolant objective should complete and the reactor temperature should fall below 500 K.
-6. Select the oxygen generator at `(2, 5)` and press **Turn On**. Keep the reactor and battery online so it stays powered.
-7. Select a free engineering floor tile and press **Build Battery (4 steel)**. Materials begin at `(3, 4)`.
-8. Confirm the objective tracker updates, the mission report appears, and the alert feed records the mission result.
-9. Save, load the save, and confirm the briefing/outcome does not repeat incorrectly and scenario progress survives.
+5. Select tile `(16, 2)`, press **Lay Coolant Pipe**, then press **Lay Power Cable** on the same hull tile to start the external radiator pump.
+6. The coolant objective should complete and the reactor temperature should fall below 500 K.
+7. Select the oxygen generator at `(2, 5)` and press **Turn On**. Keep the reactor and battery online so it stays powered.
+8. Select a free engineering floor tile and press **Build Battery (4 steel)**. Materials begin at `(3, 4)`.
+9. Confirm the objective tracker updates, the mission report appears, and the alert feed records the mission result.
+10. Save, load the save, and confirm the briefing/outcome does not repeat incorrectly and scenario progress survives.
 
 ## What to watch for
 

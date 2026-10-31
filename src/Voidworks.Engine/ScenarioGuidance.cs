@@ -16,7 +16,7 @@ namespace Voidworks.Engine;
 /// </summary>
 public static class ScenarioGuidance
 {
-    public const int MaxHints = 3;
+    public const int MaxHints = 4;
 
     public static IReadOnlyList<string> Build(SimulationState sim)
     {
@@ -38,6 +38,11 @@ public static class ScenarioGuidance
         {
             hints.Add($"Coolant loop severed between reactor {reactor.Position} and radiator {radiator.Position}. " +
                       "Select the intervening tiles and lay Coolant Pipe.");
+        }
+
+        if (radiator != null && !radiator.IsPowered && radiator.IsOnline)
+        {
+            hints.Add($"Radiator at {radiator.Position} is unpowered. Lay a power cable to the hull tile beside it so the coolant pump can run.");
         }
 
         var oxygen = sim.Machines.FirstOrDefault(machine => machine.Type == MachineType.OxygenGenerator);

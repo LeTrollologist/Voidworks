@@ -32,8 +32,10 @@ public static class PlumbingDiagnostics
         if (!radiatorPowered)
             return "Radiator coolant pumps have no power.";
 
-        bool radiatorExposed = radiators.Any(radiator => radiator.Position.Cardinals()
-            .Any(neighbor => sim.Grid.IsInBounds(neighbor) && sim.Grid[neighbor].Type == TileType.Space));
+        bool radiatorExposed = radiators.Any(radiator =>
+            sim.Grid[radiator.Position].Type == TileType.Space ||
+            radiator.Position.Cardinals()
+                .Any(neighbor => sim.Grid.IsInBounds(neighbor) && sim.Grid[neighbor].Type == TileType.Space));
         if (!radiatorExposed)
             return "Radiators are not exposed to space; heat cannot be rejected.";
 

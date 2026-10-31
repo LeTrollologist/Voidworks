@@ -167,7 +167,9 @@ demand. The machine inspector shows this explanation next to the power status.
 `PlumbingDiagnostics` explains coolant and propellant faults for the production view:
 missing reactor/radiator/pipes, a severed coolant loop, dry coolant, unpowered pumps,
 radiators without space exposure, no coolant flow, leaks, missing propellant or fuel
-lines, flameout, and zero propellant flow.
+lines, flameout, and zero propellant flow. External radiators are the only machines
+allowed on space tiles, and a coolant service pipe may occupy the radiator tile or an
+adjacent hull tile; all other utilities and machinery still require a non-space tile.
 
 Life-support warnings use the `LifeSupportWarning` event kind and are deduplicated per
 active condition (per crew oxygen/hunger/thirst, and per-tile CO₂). A cleared condition
@@ -180,11 +182,11 @@ be valid:
 - duplicate item ownership, carried-flag mismatches, stale item reservations
 - duplicate or out-of-bounds crew, items, machines, and cables
 - crew standing on non-walkable tiles
-- cables and pipes placed on space or asteroid tiles, or isolated from machines and
-  other utility tiles
+- cables and pipes placed on space or asteroid tiles (except coolant service pipes on or
+  beside an external radiator), or isolated from machines and other utility tiles
 - doors without an adjacent walkable tile, or with an unknown state
 - walkable tiles that open directly onto space (incomplete hull boundary)
-- duplicate machine tiles, machines on space/asteroid tiles, invalid machine state
+- duplicate machine tiles, machines on space/asteroid tiles (except hull-mounted radiators), invalid machine state
 - duplicate job ids, terminal jobs left on the board, orphaned active jobs,
   reserved jobs without assignees, jobs assigned to missing/unavailable crew,
   jobs targeting missing items or out-of-bounds coordinates

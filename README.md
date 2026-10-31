@@ -208,7 +208,7 @@ These loops create dependencies rather than isolated features. A broken coolant 
 
 ## Testing
 
-The automated test suite covers simulation systems including atmosphere exchange, hull breaches, crew survival and psychology, route diagnostics, autonomous breach repair, the end-to-end scenarios, assistance requests, save/load behavior, autonomous construction and dismantling, manufacturing and industrial progression, interconnected-system diagnostics, scenario presentation and guidance, and responsive UI input/layout, including ten-minute life-support runs and the combined-failure cascade scenario.
+The automated test suite covers simulation systems including atmosphere exchange, hull breaches, crew survival and psychology, route diagnostics, autonomous breach repair, the end-to-end scenarios, assistance requests, save/load behavior, autonomous construction and dismantling, manufacturing and industrial progression, interconnected-system diagnostics, scenario presentation and guidance, responsive UI input/layout, and an end-to-end command-layer completion of the primary mission, including ten-minute life-support runs and the combined-failure cascade scenario.
 
 Run the test suite locally:
 
