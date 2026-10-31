@@ -1,8 +1,32 @@
 using System;
 using System.Linq;
+using Voidworks.Sim.Jobs;
 using Voidworks.Sim.Machinery;
 
 namespace Voidworks.Sim.Commands;
+
+public sealed record RepairMachineCommand(Guid MachineId) : ISimulationCommand
+{
+    public string Name => "RepairMachine";
+
+    public SimulationCommandResult Execute(SimulationState simulation)
+    {
+        Machine? machine = simulation.Machines.FirstOrDefault(candidate => candidate.Id == MachineId);
+        if (machine == null)
+            return SimulationCommandResult.Fail("MissingMachine", $"No machine with id {MachineId} exists.");
+        if (machine.Condition >= 100.0)
+            return SimulationCommandResult.Fail("NotDamaged", $"{machine.Type} at {machine.Position} is already at full condition.");
+        if (simulation.JobManager.ActiveJobs.Any(job => job.Type == JobType.RepairMachine &&
+                                                         job.TargetCoord == machine.Position && !job.IsTerminal))
+            return SimulationCommandResult.Fail("PendingOrder",
+                $"A repair order is already queued for {machine.Type} at {machine.Position}.");
+
+        double workSeconds = 2.0 + (100.0 - machine.Condition) / 20.0;
+        Job job = Job.CreateRepairMachine(machine.Position, workSeconds);
+        simulation.JobManager.PostJob(job);
+        return SimulationCommandResult.Ok($"Queued repair of {machine.Type} at {machine.Position}.", job.Id);
+    }
+}
 
 public sealed record QueueProductionCommand(
     Guid MachineId,

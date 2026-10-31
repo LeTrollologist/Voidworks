@@ -343,6 +343,15 @@ public sealed class Job
 
     public bool IsDeconstructionOrder => Type == JobType.Deconstruct;
 
+    public static Job CreateRepairMachine(GridCoord machineCoord, double workSeconds = 5.0)
+    {
+        if (workSeconds < 0.0 || !double.IsFinite(workSeconds))
+            throw new ArgumentOutOfRangeException(nameof(workSeconds));
+
+        return new Job(JobType.RepairMachine, machineCoord, priority: 90, workSeconds,
+            $"Repair machinery at {machineCoord}");
+    }
+
     public static Job CreateAssistCrew(
         CrewMember requester,
         Job? sourceTask,

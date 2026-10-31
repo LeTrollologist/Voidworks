@@ -37,7 +37,7 @@ public sealed class ProductionView
                 : machine.ProductionLimit >= 0
                     ? $"limit {machine.ProductionCyclesCompleted}/{machine.ProductionLimit}"
                     : $"cycles {machine.ProductionCyclesCompleted}";
-            ImGui.TextDisabled($"   {Describe(machine)} | {control}");
+            ImGui.TextDisabled($"   {Describe(machine)} | {control} | condition {machine.Condition:F0}%");
             if (machine.ProductionQueue.Count > 0)
             {
                 string queued = string.Join(", ", machine.ProductionQueue

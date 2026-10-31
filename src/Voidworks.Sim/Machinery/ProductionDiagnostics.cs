@@ -16,6 +16,8 @@ public static class ProductionDiagnostics
             return "Offline";
         if (machine.PowerFraction <= 0.0)
             return "No power";
+        if (machine.IsBroken)
+            return "Broken: repair required";
         if (machine.ProductionPaused)
             return "Production paused";
         if (machine.ProductionLimit >= 0 && machine.ProductionCyclesCompleted >= machine.ProductionLimit)
@@ -24,6 +26,10 @@ public static class ProductionDiagnostics
             return "Manual queue empty";
         if (machine.ProductionQueue.Count > 0 && !machine.SupportsRecipe(machine.ProductionQueue[0].Recipe))
             return $"Unsupported order: {machine.ProductionQueue[0].Recipe}";
+        if (sim.JobManager.IsTileFull(machine.Position) &&
+            machine.Type is MachineType.MiningLaser or MachineType.SmelterRefinery or
+                MachineType.ComponentFabricator or MachineType.IceProcessor or MachineType.HydroponicsBay)
+            return "Output blocked: stockpile full";
 
         var itemsOnTile = sim.JobManager.WorldItems
             .Where(item => item.Position == machine.Position && item.IsAvailable)

@@ -280,6 +280,20 @@ public sealed class InspectionPanel
 
                 ImGui.Text($"Machine Type: {selectedMachine.Type}");
                 ImGui.Text($"Position: {selectedMachine.Position}");
+                var conditionColor = selectedMachine.Condition switch
+                {
+                    > 75.0 => new float4(0.4f, 1.0f, 0.5f, 1.0f),
+                    > 35.0 => new float4(1.0f, 0.7f, 0.3f, 1.0f),
+                    _ => new float4(1.0f, 0.3f, 0.25f, 1.0f)
+                };
+                ImGui.TextColored(conditionColor, $"Condition: {selectedMachine.Condition:F0}%");
+                if (selectedMachine.Condition < 100.0)
+                {
+                    if (ImGui.Button("Queue Repair"))
+                    {
+                        SetCommandStatus(sim.ExecuteCommand(new RepairMachineCommand(selectedMachine.Id)));
+                    }
+                }
                 string powerStatus = !selectedMachine.IsOnline
                     ? "OFFLINE"
                     : selectedMachine.PowerFraction <= 0.0

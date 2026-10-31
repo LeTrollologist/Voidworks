@@ -136,6 +136,21 @@ Machines expose `ProductionPaused`, `ProductionLimit` (-1 = unlimited),
   paused, limit reached, empty manual queue, unsupported order, or missing inputs.
 - Controls and queues are persisted in save format version 6.
 
+## Storage, hauling, and machine condition
+
+- A tile holds at most `JobManager.MaxLooseItemsPerTile` (16) loose items. Deliveries
+  are not posted to full tiles, crew do not drop into full destinations, and
+  machines hold finished output until space is available. Production diagnostics
+  report `Output blocked: stockpile full`.
+- Delivery priorities favor life support and active production: hydroponics water
+  (60), fuel tank propellant (55), processor/smelter inputs (45), construction
+  orders (30).
+- Machines wear `WearPerCycle` on every completed cycle. At condition 0 they are
+  broken and cannot produce until repaired.
+- `RepairMachineCommand` and the emergency scan queue `RepairMachine` jobs. Crew
+  need a welding torch and repair over time; completion restores condition to 100.
+- Condition is persisted in save format version 7.
+
 ## Diagnostics
 
 `SimulationState.Events` is a bounded `SimulationEventLog` (512 entries by default).
@@ -172,15 +187,16 @@ Debug window.
 
 ## Save format
 
-`SimulationSerializer.CurrentSaveFormatVersion` is **6**.
+`SimulationSerializer.CurrentSaveFormatVersion` is **7**.
 
-- Version 0 (legacy, no explicit version), 1, 2, 3, 4, and 5 remain readable.
+- Version 0 (legacy, no explicit version), 1, 2, 3, 4, 5, and 6 remain readable.
 - Version 3 adds job `State`, `FailedAttempts`, `LastFailureReason`, `BlockedReason`,
   and `RetryNotBeforeSimTime`.
 - Version 4 adds job material/tool reservations (`ReservedMaterialIds`).
 - Version 5 adds machine `ProductionPaused`, `ProductionLimit`, and
   `ProductionCyclesCompleted`.
 - Version 6 adds `AutoProductionEnabled` and the machine `ProductionQueue`.
+- Version 7 adds machine `Condition`.
 - Older saves migrate by deriving state from the legacy completion flags and
   resetting retry bookkeeping and material reservations; jobs in old saves therefore
   load as `Queued` unless they were completed or cancelled.

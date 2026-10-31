@@ -15,5 +15,6 @@ public enum JobType
     AssistCrew,
     DeliverItem,
     Construct,
-    Deconstruct
+    Deconstruct,
+    RepairMachine
 }

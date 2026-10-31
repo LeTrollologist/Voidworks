@@ -4,6 +4,7 @@ using System.Linq;
 using Voidworks.Sim.Crew;
 using Voidworks.Sim.Diagnostics;
 using Voidworks.Sim.Items;
+using Voidworks.Sim.Machinery;
 using Voidworks.Sim.Navigation;
 using Voidworks.Sim.Ship;
 
@@ -13,6 +14,9 @@ public sealed class JobManager
 {
     /// <summary>Attempts allowed before a job is marked failed and stops being claimable.</summary>
     public const int MaximumAttemptsPerJob = 3;
+
+    /// <summary>Maximum loose items allowed on one tile before deliveries/output stop.</summary>
+    public const int MaxLooseItemsPerTile = 16;
 
     private readonly List<Job> _jobs = new();
     private readonly List<Item> _worldItems = new();
@@ -41,6 +45,12 @@ public sealed class JobManager
     internal void BindWorld(IJobWorldContext world) => _world = world;
 
     public void AddItem(Item item) => _worldItems.Add(item);
+
+    public int CountLooseItemsAt(GridCoord coord)
+        => _worldItems.Count(item => item.Position == coord && !item.IsCarried);
+
+    public bool IsTileFull(GridCoord coord)
+        => CountLooseItemsAt(coord) >= MaxLooseItemsPerTile;
 
     public void RemoveItem(Item item)
     {
@@ -548,7 +558,7 @@ public sealed class JobManager
             item.Type == type && (type != ItemType.OxygenTank || item.StoredOxygenMoles > 0.05)));
     }
 
-    public void ScanWorldForEmergencies(ShipGrid grid)
+    public void ScanWorldForEmergencies(ShipGrid grid, IReadOnlyList<Machine>? machines = null)
     {
         // Detect breaches and create repair jobs
         for (int y = 0; y < grid.Height; y++)
@@ -566,6 +576,17 @@ public sealed class JobManager
                     }
                 }
             }
+        }
+
+        if (machines == null)
+            return;
+
+        foreach (var machine in machines.Where(candidate => candidate.IsBroken))
+        {
+            bool repairExists = _jobs.Any(job => job.Type == JobType.RepairMachine &&
+                                                 job.TargetCoord == machine.Position && !job.IsTerminal);
+            if (!repairExists)
+                PostJob(Job.CreateRepairMachine(machine.Position));
         }
     }
 }

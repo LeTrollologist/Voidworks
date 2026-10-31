@@ -98,9 +98,14 @@ public sealed class Machine
     public int MaxQueuedCycles { get; set; } = 50;
     public List<ProductionOrder> ProductionQueue { get; } = new();
 
+    // Condition / wear. Broken machines cannot produce until repaired.
+    public double Condition { get; set; } = 100.0;
+    public double WearPerCycle { get; set; } = 0.02;
+    public bool IsBroken => Condition <= 0.0;
+
     public int QueuedCycles => ProductionQueue.Sum(order => order.Quantity);
 
-    public bool CanProduce => !ProductionPaused &&
+    public bool CanProduce => !ProductionPaused && !IsBroken &&
         (ProductionLimit < 0 || ProductionCyclesCompleted < ProductionLimit);
 
     public bool SupportsRecipe(ProductionRecipe recipe) => Type switch
@@ -130,6 +135,7 @@ public sealed class Machine
     public void CompleteCycle(ProductionRecipe recipe)
     {
         ProductionCyclesCompleted++;
+        Condition = Math.Max(0.0, Condition - WearPerCycle);
         if (ProductionQueue.Count > 0 && ProductionQueue[0].Recipe == recipe)
         {
             ProductionQueue[0].Quantity--;

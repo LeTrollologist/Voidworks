@@ -416,6 +416,21 @@ public sealed class CrewAI
             }
         }
 
+        if (emergencyJob?.Type == JobType.RepairMachine)
+        {
+            if (!PlanRepairMachinePrerequisites(jobManager, emergencyJob))
+            {
+                jobManager.BlockJob(emergencyJob, Crew.Id, "Welding torch unavailable for repair");
+                emergencyPlanFailed = true;
+                CurrentActivity = "Waiting for welding torch to repair machinery";
+            }
+            else if (_subJobs.Count > 0)
+            {
+                CurrentJob = _subJobs.Dequeue();
+                return;
+            }
+        }
+
         // Routine tasks
         if (emergencyJob != null && !emergencyPlanFailed)
         {
@@ -655,6 +670,49 @@ public sealed class CrewAI
         return true;
     }
 
+    private bool PlanRepairMachinePrerequisites(JobManager jobManager, Job repairJob)
+    {
+        _subJobs.Clear();
+        if (Crew.HasItem(ItemType.WeldingTorch))
+        {
+            _subJobs.Enqueue(repairJob);
+            return true;
+        }
+
+        Item? torch = jobManager.FindAvailableItem(ItemType.WeldingTorch, Crew.Position, Crew.Id);
+        if (torch == null)
+        {
+            RecordTaskFailure(new CrewDecisionDiagnostic(
+                CrewDiagnosticReason.ResourceUnavailable,
+                repairJob.TargetCoord,
+                Crew.Position,
+                null,
+                "A welding torch is required to repair machinery."),
+                repairJob,
+                jobManager,
+                [ItemType.WeldingTorch]);
+            return false;
+        }
+
+        if (!jobManager.TryReserveMaterial(repairJob, torch, Crew.Id))
+        {
+            RecordTaskFailure(new CrewDecisionDiagnostic(
+                CrewDiagnosticReason.ResourceUnavailable,
+                repairJob.TargetCoord,
+                Crew.Position,
+                null,
+                "The welding torch is already reserved by another order."),
+                repairJob,
+                jobManager,
+                [ItemType.WeldingTorch]);
+            return false;
+        }
+
+        _subJobs.Enqueue(Job.CreateFetchItem(torch, priority: 35));
+        _subJobs.Enqueue(repairJob);
+        return true;
+    }
+
     private void ExecuteCurrentJob(
         ShipGrid grid,
         JobManager jobManager,
@@ -693,6 +751,10 @@ public sealed class CrewAI
                 ExecuteDeconstruction(grid, jobManager, dt, machines);
                 break;
 
+            case JobType.RepairMachine:
+                ExecuteRepairMachine(grid, jobManager, dt, machines);
+                break;
+
             case JobType.EatFood:
                 ExecuteEatFood(jobManager, dt);
                 break;
@@ -713,6 +775,66 @@ public sealed class CrewAI
                 CurrentJob = null;
                 break;
         }
+    }
+
+    private void ExecuteRepairMachine(
+        ShipGrid grid, JobManager jobManager, double dt, List<Machine>? machines)
+    {
+        var job = CurrentJob!;
+        var machine = machines?.FirstOrDefault(candidate => candidate.Position == job.TargetCoord);
+        if (machine == null || machine.Condition >= 100.0)
+        {
+            jobManager.CompleteJob(job);
+            CurrentJob = null;
+            _currentPath = null;
+            CurrentActivity = "Repair order closed";
+            return;
+        }
+
+        int distance = Math.Abs(Crew.Position.X - job.TargetCoord.X) +
+                       Math.Abs(Crew.Position.Y - job.TargetCoord.Y);
+        if (distance > 1)
+        {
+            var route = AStarPathfinder.FindPathToAdjacentWithDiagnostics(
+                grid, Crew.Position, job.TargetCoord, Crew);
+            if (route.Path == null || route.Path.Count <= 1)
+            {
+                RecordNavigationFailure(route, job.TargetCoord, jobManager);
+                jobManager.ReleaseJobForRetry(job, Crew.Id, "No route to machinery");
+                CurrentJob = null;
+                _currentPath = null;
+                return;
+            }
+
+            ClearFailureAfterSuccess();
+            route.Path.RemoveAt(0);
+            _currentPath = route.Path;
+            CurrentActivity = $"Moving to repair {machine.Type} at {job.TargetCoord}";
+            return;
+        }
+
+        if (!Crew.HasItem(ItemType.WeldingTorch))
+        {
+            jobManager.ReleaseJobForRetry(job, Crew.Id, "Welding torch missing");
+            CurrentJob = null;
+            CurrentActivity = "Repair halted: welding torch missing";
+            return;
+        }
+
+        job.WorkRemainingSeconds = Math.Max(
+            0.0, job.WorkRemainingSeconds - dt * Crew.Psychology.WorkRateMultiplier);
+        if (job.WorkRemainingSeconds > 0.0)
+        {
+            CurrentActivity = $"Repairing {machine.Type} ({job.WorkRemainingSeconds:F1}s)";
+            return;
+        }
+
+        machine.Condition = 100.0;
+        jobManager.CompleteJob(job);
+        CurrentJob = null;
+        _currentPath = null;
+        _moveAccumulator = 0.0;
+        CurrentActivity = $"Repaired {machine.Type} at {machine.Position}";
     }
 
     private void ExecuteFetchItem(ShipGrid grid, JobManager jobManager)
@@ -811,6 +933,14 @@ public sealed class CrewAI
         int smelterDistance = Math.Abs(Crew.Position.X - job.TargetCoord.X) + Math.Abs(Crew.Position.Y - job.TargetCoord.Y);
         if (smelterDistance <= 1)
         {
+            if (jobManager.IsTileFull(job.TargetCoord))
+            {
+                jobManager.ReleaseJobForRetry(job, Crew.Id, "Destination stockpile full");
+                CurrentJob = null;
+                CurrentActivity = "Refinery stockpile full; waiting";
+                return;
+            }
+
             Crew.Drop(ore, job.TargetCoord);
             ore.ReservedByCrewId = null;
             jobManager.AddItem(ore);
@@ -889,6 +1019,14 @@ public sealed class CrewAI
             Math.Abs(Crew.Position.Y - job.TargetCoord.Y);
         if (destinationDistance <= 1)
         {
+            if (jobManager.IsTileFull(job.TargetCoord))
+            {
+                jobManager.ReleaseJobForRetry(job, Crew.Id, "Destination stockpile full");
+                CurrentJob = null;
+                CurrentActivity = "Destination stockpile full; waiting";
+                return;
+            }
+
             Crew.Drop(item, job.TargetCoord);
             item.ReservedByCrewId = null;
             jobManager.AddItem(item);

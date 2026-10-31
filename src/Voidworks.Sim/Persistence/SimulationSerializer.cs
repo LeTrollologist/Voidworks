@@ -20,10 +20,11 @@ public static class SimulationSerializer
 {
     /// <summary>
     /// Current save format. Version 3 added job lifecycle state, version 4 job
-    /// material reservations, version 5 machine production controls, and version 6
-    /// machine production queues. Versions 0-5 remain readable with defaults.
+    /// material reservations, version 5 machine production controls, version 6
+    /// production queues, and version 7 machine condition. Older versions load with
+    /// defaults for features they predate.
     /// </summary>
-    public const int CurrentSaveFormatVersion = 6;
+    public const int CurrentSaveFormatVersion = 7;
     public const int MinimumSupportedSaveFormatVersion = 0;
     private const long MaximumSavedGridTileCount = 1_000_000;
 
@@ -181,6 +182,7 @@ public static class SimulationSerializer
                 ProductionLimit = m.ProductionLimit,
                 ProductionCyclesCompleted = m.ProductionCyclesCompleted,
                 AutoProductionEnabled = m.AutoProductionEnabled,
+                Condition = m.Condition,
                 ProductionQueue = m.ProductionQueue
                     .Select(order => new ProductionOrderSaveDto { Recipe = order.Recipe, Quantity = order.Quantity })
                     .ToList()
@@ -361,7 +363,8 @@ public static class SimulationSerializer
                 ProductionPaused = mDto.ProductionPaused,
                 ProductionLimit = mDto.ProductionLimit,
                 ProductionCyclesCompleted = mDto.ProductionCyclesCompleted,
-                AutoProductionEnabled = mDto.AutoProductionEnabled
+                AutoProductionEnabled = mDto.AutoProductionEnabled,
+                Condition = mDto.Condition
             };
             foreach (var order in mDto.ProductionQueue)
                 m.ProductionQueue.Add(new ProductionOrder(order.Recipe, order.Quantity));
@@ -607,6 +610,8 @@ public static class SimulationSerializer
                 throw new InvalidDataException($"Machine '{machine.Name}' contains an incomplete asteroid coordinate.");
             if (machine.ProductionLimit < -1 || machine.ProductionCyclesCompleted < 0)
                 throw new InvalidDataException($"Machine '{machine.Name}' contains invalid production controls.");
+            if (!double.IsFinite(machine.Condition) || machine.Condition < 0.0 || machine.Condition > 100.0)
+                throw new InvalidDataException($"Machine '{machine.Name}' contains an invalid condition value.");
             if (machine.ProductionQueue == null)
                 throw new InvalidDataException($"Machine '{machine.Name}' contains a missing production queue.");
             if (machine.ProductionQueue.Any(order =>
@@ -1098,6 +1103,7 @@ public sealed class MachineSaveDto
     public int ProductionLimit { get; set; } = -1;
     public int ProductionCyclesCompleted { get; set; }
     public bool AutoProductionEnabled { get; set; } = true;
+    public double Condition { get; set; } = 100.0;
     public List<ProductionOrderSaveDto> ProductionQueue { get; set; } = new();
     public double PowerOutput { get; set; }
     public double RatedPowerOutput { get; set; }

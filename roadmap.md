@@ -12,7 +12,7 @@ Simulation update ordering, job lifecycle and retry rules, invariant checks, sav
 
 ## Recent Progress
 
-- **2026-10-27:** Baseline re-established at 139 passing tests. Jobs now have explicit lifecycle states, full reservation release, bounded retry/backoff, and a bounded event history; construction orders reserve materials and return them on cancellation or failure; development invariants cover ownership, placement, door connectivity, room boundaries, and utility connectivity; saves use format v6 with backward migration; all six scenarios plus the full industrial chain have headless smoke and long-run coverage; player actions flow through validated commands with explicit failure codes; the management UI provides a crew roster, job controls, stockpile and production views, overlay legends, save slots, alert focus, and debug views; construction previews and reachability validation are in place; and machines support pause/limit controls plus recipe queues with explicit shortage reasons. The rules are documented in [`docs/simulation-contract.md`](docs/simulation-contract.md).
+- **2026-10-27:** Baseline re-established at 147 passing tests. Jobs have explicit lifecycle states, reservation release, bounded retry, and event history; construction reserves materials and returns them on cancellation; invariants cover ownership, placement, doors, rooms, and utilities; saves use format v7; all scenarios plus the industrial chain and built-machine lifecycle have headless coverage; player actions use validated commands; the management UI covers roster, jobs, stockpiles, production, overlays, alerts, and save slots; machines support recipe queues, pause/limits, wear, breakdown, and crew repair; and stockpiles are capacity-limited with life-support-first hauling priorities. The rules are documented in [`docs/simulation-contract.md`](docs/simulation-contract.md).
 
 
 ## Phase 0: Establish a Reliable Baseline
@@ -92,11 +92,11 @@ Simulation update ordering, job lifecycle and retry rules, invariant checks, sav
 - [x] Add automated tests for construction, material consumption, cancellation, and machine placement.
 - [x] Prevent invalid, overlapping, inaccessible, or unsupported construction.
 - [x] Define material reservation and return rules for cancelled or failed orders.
-- [ ] Add hauling priorities, storage limits, and sensible stockpile behavior.
-- [ ] Add machine condition, damage, maintenance, repair, and deconstruction.
-- [ ] Add recipe validation and clear input/output shortage states.
+- [x] Add hauling priorities, storage limits, and sensible stockpile behavior.
+- [x] Add machine condition, damage, maintenance, repair, and deconstruction.
+- [x] Add recipe validation and clear input/output shortage states.
 - [x] Add production limits and machine queue controls.
-- [ ] Ensure built machines can be connected, powered, supplied, and used by crew.
+- [x] Ensure built machines can be connected, powered, supplied, and used by crew.
 
 **Exit criteria:** a player can gather resources and turn them into useful ship capability without manual state editing.
 

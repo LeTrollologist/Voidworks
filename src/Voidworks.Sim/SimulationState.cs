@@ -137,7 +137,7 @@ public sealed class SimulationState : IJobWorldContext
         }
 
         // 7. Detect world emergencies (breaches, broken systems)
-        JobManager.ScanWorldForEmergencies(Grid);
+        JobManager.ScanWorldForEmergencies(Grid, Machines);
 
         // 8. Update active scenario objectives and win/loss conditions
         ActiveScenario?.Update(this, dt);
@@ -218,6 +218,12 @@ public sealed class SimulationState : IJobWorldContext
                     m.MiningProgressSeconds += dt * m.PowerFraction;
                     if (m.MiningProgressSeconds >= m.MiningCycleSeconds)
                     {
+                        if (JobManager.IsTileFull(m.Position))
+                        {
+                            m.MiningProgressSeconds = m.MiningCycleSeconds;
+                            continue;
+                        }
+
                         m.MiningProgressSeconds = 0.0;
                         var astTile = Grid[m.TargetAsteroidCoord.Value];
 
@@ -258,7 +264,7 @@ public sealed class SimulationState : IJobWorldContext
                     }
                 }
 
-                if (m.SteelPlatesProduced > 0)
+                if (m.SteelPlatesProduced > 0 && !JobManager.IsTileFull(m.Position))
                 {
                     m.SteelPlatesProduced--;
                     JobManager.AddItem(new Item(ItemType.SteelPlate, m.Position));
@@ -279,7 +285,7 @@ public sealed class SimulationState : IJobWorldContext
                     }
                 }
 
-                if (m.FoodRationsProduced > 0)
+                if (m.FoodRationsProduced > 0 && !JobManager.IsTileFull(m.Position))
                 {
                     m.FoodRationsProduced--;
                     JobManager.AddItem(new Item(ItemType.FoodRation, m.Position));
@@ -308,6 +314,9 @@ public sealed class SimulationState : IJobWorldContext
 
                 if (m.ComponentsProduced > 0)
                 {
+                    if (JobManager.IsTileFull(m.Position))
+                        continue;
+
                     m.ComponentsProduced--;
                     JobManager.AddItem(new Item(ItemType.MachineComponent, m.Position));
                 }
@@ -349,6 +358,9 @@ public sealed class SimulationState : IJobWorldContext
                 {
                     if (m.FuelCanistersProduced > 0)
                     {
+                        if (JobManager.IsTileFull(m.Position))
+                            continue;
+
                         m.FuelCanistersProduced--;
                         JobManager.AddItem(new Item(ItemType.FuelCanister, m.Position));
                     }
@@ -386,6 +398,9 @@ public sealed class SimulationState : IJobWorldContext
                 {
                     if (m.WaterRationsProduced > 0)
                     {
+                        if (JobManager.IsTileFull(m.Position))
+                            continue;
+
                         m.WaterRationsProduced--;
                         JobManager.AddItem(new Item(ItemType.WaterRation, m.Position));
                     }
@@ -427,6 +442,9 @@ public sealed class SimulationState : IJobWorldContext
         foreach (var machine in Machines.Where(machine => machine.IsOnline &&
                      machine.Type is MachineType.ComponentFabricator or MachineType.IceProcessor))
         {
+            if (JobManager.IsTileFull(machine.Position))
+                continue;
+
             ItemType inputType = machine.Type == MachineType.ComponentFabricator
                 ? ItemType.SteelPlate
                 : ItemType.IceOre;
@@ -447,7 +465,7 @@ public sealed class SimulationState : IJobWorldContext
                                           Math.Abs(candidate.Position.Y - machine.Position.Y))
                     .FirstOrDefault();
                 if (item == null) break;
-                JobManager.PostJob(Job.CreateDeliverItem(machine.Position, item));
+                JobManager.PostJob(Job.CreateDeliverItem(machine.Position, item, priority: 45));
             }
 
             if (machine.Type != MachineType.ComponentFabricator) continue;
@@ -465,11 +483,14 @@ public sealed class SimulationState : IJobWorldContext
                                  Math.Abs(item.Position.Y - machine.Position.Y))
                 .FirstOrDefault();
             if (iron != null)
-                JobManager.PostJob(Job.CreateDeliverItem(machine.Position, iron));
+                JobManager.PostJob(Job.CreateDeliverItem(machine.Position, iron, priority: 45));
         }
 
         foreach (var bay in Machines.Where(m => m.IsOnline && m.Type == MachineType.HydroponicsBay && m.WaterStoredLiters <= 5.0))
         {
+            if (JobManager.IsTileFull(bay.Position))
+                continue;
+
             int onSite = JobManager.WorldItems.Count(item =>
                 item.Position == bay.Position && item.Type == ItemType.WaterRation && item.IsAvailable);
             int inTransit = JobManager.ActiveJobs.Count(job => job.Type == JobType.DeliverItem &&
@@ -483,12 +504,15 @@ public sealed class SimulationState : IJobWorldContext
                                      Math.Abs(item.Position.Y - bay.Position.Y))
                     .FirstOrDefault();
                 if (water != null)
-                    JobManager.PostJob(Job.CreateDeliverItem(bay.Position, water));
+                    JobManager.PostJob(Job.CreateDeliverItem(bay.Position, water, priority: 60));
             }
         }
 
         foreach (var tank in Machines.Where(m => m.IsOnline && m.Type == MachineType.FuelTank && m.FuelStoredKg < m.FuelCapacityKg))
         {
+            if (JobManager.IsTileFull(tank.Position))
+                continue;
+
             int onSite = JobManager.WorldItems.Count(item =>
                 item.Position == tank.Position && item.Type == ItemType.FuelCanister && item.IsAvailable);
             int inTransit = JobManager.ActiveJobs.Count(job => job.Type == JobType.DeliverItem &&
@@ -502,7 +526,7 @@ public sealed class SimulationState : IJobWorldContext
                                      Math.Abs(item.Position.Y - tank.Position.Y))
                     .FirstOrDefault();
                 if (fuel != null)
-                    JobManager.PostJob(Job.CreateDeliverItem(tank.Position, fuel));
+                    JobManager.PostJob(Job.CreateDeliverItem(tank.Position, fuel, priority: 55));
             }
         }
     }
@@ -519,7 +543,7 @@ public sealed class SimulationState : IJobWorldContext
                     job.TargetItem?.Id == item.Id));
 
             if (ore != null)
-                JobManager.PostJob(Job.CreateRefineOre(smelter.Position, ore));
+                JobManager.PostJob(Job.CreateRefineOre(smelter.Position, ore, priority: 45));
         }
     }
 
