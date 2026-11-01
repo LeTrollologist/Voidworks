@@ -32,6 +32,7 @@ public sealed class EngineApp
     private bool _isPanning = false;
     private bool _spaceWasPressed = false;
     private bool _leftWasPressed = false;
+    private bool _fitCameraRequested = true;
 
     public unsafe void Run(SimulationState sim)
     {
@@ -106,8 +107,25 @@ public sealed class EngineApp
             var displaySize = io.DisplaySize;
             if (displaySize.X <= 0f || displaySize.Y <= 0f)
                 displaySize = windowSize;
+            LayoutRect worldViewport = WorkstationLayout.WorldViewport(displaySize);
+            if (_fitCameraRequested)
+            {
+                _camera.Fit(
+                    float2.Zero,
+                    new float2(sim.Grid.Width, sim.Grid.Height),
+                    new float2(
+                        worldViewport.X + worldViewport.Width * 0.5f,
+                        worldViewport.Y + worldViewport.Height * 0.5f),
+                    worldViewport.Size);
+                _fitCameraRequested = false;
+            }
             var mouseV = DisplayMetrics.CursorToDisplay(rawMouse, displaySize, windowSize);
-            _camera.ZoomAt((float)offset.Y, mouseV, DisplayMetrics.ViewportCenter(displaySize));
+            _camera.ZoomAt(
+                (float)offset.Y,
+                mouseV,
+                new float2(
+                    worldViewport.X + worldViewport.Width * 0.5f,
+                    worldViewport.Y + worldViewport.Height * 0.5f));
         };
 
         var stopwatch = Stopwatch.StartNew();
@@ -141,12 +159,27 @@ public sealed class EngineApp
             if (displaySize.X <= 0f || displaySize.Y <= 0f)
                 displaySize = windowSizeF;
 
+            LayoutRect worldViewport = WorkstationLayout.WorldViewport(displaySize);
+            if (_fitCameraRequested)
+            {
+                _camera.Fit(
+                    float2.Zero,
+                    new float2(sim.Grid.Width, sim.Grid.Height),
+                    new float2(
+                        worldViewport.X + worldViewport.Width * 0.5f,
+                        worldViewport.Y + worldViewport.Height * 0.5f),
+                    worldViewport.Size);
+                _fitCameraRequested = false;
+            }
+
             var cursor = window.CursorPos;
             var mousePos = DisplayMetrics.CursorToDisplay(
                 new float2((float)cursor.X, (float)cursor.Y),
                 displaySize,
                 windowSizeF);
-            var viewportCenter = DisplayMetrics.ViewportCenter(displaySize);
+            var viewportCenter = new float2(
+                worldViewport.X + worldViewport.Width * 0.5f,
+                worldViewport.Y + worldViewport.Height * 0.5f);
 
             // Middle mouse panning. Capture is sampled before the UI frame, so a drag
             // that starts over a panel must not move the world underneath it.
@@ -183,17 +216,11 @@ public sealed class EngineApp
 
                     // Check if a crew member is on this tile
                     var crewOnTile = sim.Crew.FirstOrDefault(c => c.Crew.Position == hoveredCoord.Value);
-                    if (crewOnTile != null)
-                    {
-                        _selectedCrew = crewOnTile.Crew;
-                    }
+                    _selectedCrew = crewOnTile?.Crew;
 
                     // Check if a machine is on this tile
                     var machOnTile = sim.Machines.FirstOrDefault(m => m.Position == hoveredCoord.Value);
-                    if (machOnTile != null)
-                    {
-                        _selectedMachine = machOnTile;
-                    }
+                    _selectedMachine = machOnTile;
                 }
                 _leftWasPressed = leftDown;
             }
@@ -223,6 +250,8 @@ public sealed class EngineApp
             // Render interactive UI panels
             _ui.HideForScenarioOverlay = _scenarioOverlay.BlocksWorldInput;
             _ui.Render(sim, ref _overlayMode, ref _selectedTile, ref _selectedCrew, ref _selectedMachine);
+            if (_ui.FitViewRequested)
+                _fitCameraRequested = true;
             _scenarioOverlay.Render(sim);
             if (_ui.LoadRequestedPath is { } loadPath)
             {

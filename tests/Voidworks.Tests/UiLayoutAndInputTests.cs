@@ -25,6 +25,21 @@ public class UiLayoutAndInputTests
     }
 
     [Fact]
+    public void WorldViewport_StaysBetweenManagementAndInspector()
+    {
+        var display = new float2(1600f, 900f);
+        LayoutRect world = WorkstationLayout.WorldViewport(display);
+        LayoutRect inspector = WorkstationLayout.Inspector(display);
+
+        Assert.True(world.X >= 0f);
+        Assert.True(world.Y > WorkstationLayout.Toolbar(display).Bottom);
+        Assert.True(world.Right <= inspector.X);
+        Assert.True(world.Bottom <= display.Y);
+        Assert.True(world.Width >= 120f);
+        Assert.True(world.Height >= 120f);
+    }
+
+    [Fact]
     public void InspectorWidth_StaysWithinReadableBounds()
     {
         Assert.Equal(WorkstationLayout.MinInspectorWidth,

@@ -40,6 +40,7 @@ public sealed class InspectionPanel
     /// screen. The world and overlay remain visible, and panels return on dismissal.
     /// </summary>
     public bool HideForScenarioOverlay { get; set; }
+    public bool FitViewRequested { get; private set; }
 
     public void Render(
         SimulationState sim,
@@ -49,13 +50,15 @@ public sealed class InspectionPanel
         ref Machine? selectedMachine)
     {
         LoadRequestedPath = null;
+        FitViewRequested = false;
         if (HideForScenarioOverlay)
             return;
 
         RenderTopTelemetryBar(sim);
         RenderControlToolbar(sim, ref overlayMode);
         RenderInspectorSidebar(sim, selectedTile, selectedCrew, ref selectedMachine);
-        RenderCrewPathDebugPanel(sim);
+        if (_showDebugPanel || overlayMode == OverlayMode.CrewPaths)
+            RenderCrewPathDebugPanel(sim);
         if (_showManagementPanel)
             _managementPanel.Render(sim, ref selectedTile, ref selectedCrew, ref selectedMachine);
         RenderOverlayLegend(overlayMode);
@@ -75,13 +78,14 @@ public sealed class InspectionPanel
         if (ImGui.Begin("TelemetryBar", flags))
         {
             string statusStr = sim.IsPaused ? "SIMULATION PAUSED" : $"SIMULATION RUNNING ({sim.TimeScale:F0}x)";
+            string modeStr = sim.ActiveScenario == null ? "SANDBOX" : "OPERATIONS";
             int minutes = (int)(sim.SimTime / 60.0);
             int seconds = (int)(sim.SimTime % 60.0);
             string timeStr = $"T+{minutes:D2}:{seconds:D2}";
 
             ImGui.TextColored(new float4(0.2f, 0.8f, 1.0f, 1.0f), "VOIDWORKS");
             ImGui.SameLine();
-            ImGui.TextDisabled($"|  OPERATIONS  ·  {timeStr}  ·  {statusStr}");
+            ImGui.TextDisabled($"|  {modeStr}  ·  {timeStr}  ·  {statusStr}");
 
             ImGui.Separator();
 
@@ -106,8 +110,8 @@ public sealed class InspectionPanel
             bool hasPowerShortfall = sim.PowerGridSolver.TotalUnservedDemandKW > 1e-6;
             var powerColor = hasPowerShortfall ? new float4(1.0f, 0.45f, 0.2f, 1.0f) : new float4(0.2f, 1.0f, 0.4f, 1.0f);
             ImGui.TextColored(powerColor,
-                $"{sim.PowerGridSolver.TotalServedDemandKW:F1}/{sim.PowerGridSolver.TotalDemandKW:F1} kW served" +
-                (hasPowerShortfall ? $" · {sim.PowerGridSolver.BrownoutMachineCount} brownout" : string.Empty));
+                $"{sim.PowerGridSolver.TotalServedDemandKW:F0}/{sim.PowerGridSolver.TotalDemandKW:F0} kW" +
+                (hasPowerShortfall ? $" · BROWN {sim.PowerGridSolver.BrownoutMachineCount}" : string.Empty));
 
             // 4. Battery
             ImGui.SameLine(650f);
@@ -172,6 +176,8 @@ public sealed class InspectionPanel
             if (ImGui.Button(" Alerts ")) _showAlertsPanel = !_showAlertsPanel;
             ImGui.SameLine();
             if (ImGui.Button(" Mgmt ")) _showManagementPanel = !_showManagementPanel;
+            ImGui.SameLine();
+            if (ImGui.Button(" Fit ")) FitViewRequested = true;
 
             ImGui.Spacing();
             ImGui.TextDisabled("Overlays:");

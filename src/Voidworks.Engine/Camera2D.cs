@@ -41,4 +41,30 @@ public sealed class Camera2D
         var worldAfter = ScreenToWorld(screenMousePos, viewportCenter);
         WorldCenter += (worldBefore - worldAfter);
     }
+
+    /// <summary>
+    /// Fits a world rectangle into the usable viewport and centers it there. The
+    /// caller supplies the free-area center so the ship is not hidden under fixed UI
+    /// panels.
+    /// </summary>
+    public void Fit(
+        float2 worldMin,
+        float2 worldMax,
+        float2 viewportCenter,
+        float2 viewportSize,
+        float padding = 24f)
+    {
+        float worldWidth = MathF.Max(0.001f, worldMax.X - worldMin.X);
+        float worldHeight = MathF.Max(0.001f, worldMax.Y - worldMin.Y);
+        float usableWidth = MathF.Max(1f, viewportSize.X - padding * 2f);
+        float usableHeight = MathF.Max(1f, viewportSize.Y - padding * 2f);
+
+        Zoom = Math.Clamp(
+            MathF.Min(usableWidth / worldWidth, usableHeight / worldHeight),
+            MinZoom,
+            MaxZoom);
+        WorldCenter = new float2(
+            (worldMin.X + worldMax.X) * 0.5f,
+            (worldMin.Y + worldMax.Y) * 0.5f);
+    }
 }

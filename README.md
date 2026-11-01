@@ -39,6 +39,8 @@ The goal is a simulation where machinery, resources, atmosphere, and people depe
 - The primary mission opens with a paused briefing, a live objective tracker with per-objective status, contextual next-step guidance, and a mission-complete or mission-failed report with final events.
 - The default launch starts the `derelict-crisis` vertical slice. Pass `--sandbox` to start without a mission.
 - The workstation uses a responsive fixed-panel layout and scales cursor coordinates from window space to ImGui display space for high-DPI displays; world input is blocked whenever a panel, briefing, or mission report owns the pointer.
+- Camera fit centers the whole ship in the free area between the management panel and inspector, with a **Fit** button to restore the view.
+- Tile clicks select the tile's crew or machine exclusively, and the Crew Path diagnostics panel appears only while the Crew Paths overlay or Debug panel is active.
 
 - Buildable machinery includes component fabricators, ice processors, mining lasers, smelters, batteries, reactors, oxygen generators, carbon scrubbers, hydroponics bays, fuel tanks, radiators, and main engines. Power cables and fluid pipes still need to be laid separately.
 

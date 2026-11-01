@@ -71,6 +71,30 @@ public class Camera2DTests
     }
 
     [Fact]
+    public void Fit_CentersWorldAndUsesTightestAxis()
+    {
+        var camera = new Camera2D();
+        var center = new float2(700f, 500f);
+        camera.Fit(float2.Zero, new float2(20f, 9f), center, new float2(600f, 400f), padding: 20f);
+
+        Assert.Equal(28f, camera.Zoom, precision: 4); // 560 / 20
+        Assert.Equal(10f, camera.WorldCenter.X, precision: 4);
+        Assert.Equal(4.5f, camera.WorldCenter.Y, precision: 4);
+        Assert.Equal(new GridCoord(10, 4), camera.ScreenToTile(center, center));
+    }
+
+    [Fact]
+    public void Fit_ClampsToCameraZoomLimits()
+    {
+        var camera = new Camera2D();
+        camera.Fit(float2.Zero, new float2(400f, 400f), float2.Zero, new float2(100f, 100f));
+        Assert.Equal(Camera2D.MinZoom, camera.Zoom);
+
+        camera.Fit(float2.Zero, new float2(1f, 1f), float2.Zero, new float2(2000f, 2000f));
+        Assert.Equal(Camera2D.MaxZoom, camera.Zoom);
+    }
+
+    [Fact]
     public void Resize_ChangesMappingForTheSameScreenPoint()
     {
         var camera = new Camera2D { WorldCenter = new float2(10f, 6f), Zoom = 50f };

@@ -49,6 +49,20 @@ public static class WorkstationLayout
             InspectorWidth(displaySize),
             Math.Max(220f, displaySize.Y - Margin * 2f));
 
+    /// <summary>
+    /// Free area used for the ship view. It reserves the default management column
+    /// on the left and the inspector on the right so the initial fit shows the whole
+    /// vessel instead of hiding its ends under fixed panels.
+    /// </summary>
+    public static LayoutRect WorldViewport(float2 displaySize)
+    {
+        float left = Math.Min(490f, displaySize.X * 0.34f);
+        float top = Toolbar(displaySize).Bottom + Gap;
+        float right = Math.Max(left + 120f, Inspector(displaySize).X - Gap);
+        float bottom = Math.Max(top + 120f, displaySize.Y - Margin);
+        return new LayoutRect(left, top, right - left, bottom - top);
+    }
+
     private static float MainColumnWidth(float2 displaySize)
     {
         float width = displaySize.X - InspectorWidth(displaySize) - Margin * 3f;
