@@ -109,6 +109,30 @@ public class CommandLayerTests
     }
 
     [Fact]
+    public void SetUtility_IsIdempotentAndSupportsRemoval()
+    {
+        SimulationState sim = CommandTestWorld.Create();
+        var coord = new GridCoord(4, 4);
+
+        Assert.True(sim.ExecuteCommand(
+            new SetUtilityCommand(coord, UtilityKind.CoolantPipe, Present: true)).Success);
+        Assert.True(sim.ExecuteCommand(
+            new SetUtilityCommand(coord, UtilityKind.CoolantPipe, Present: true)).Success);
+        Assert.Contains(coord, sim.PlumbingSolver.CoolantPipes);
+
+        Assert.True(sim.ExecuteCommand(
+            new SetUtilityCommand(coord, UtilityKind.CoolantPipe, Present: false)).Success);
+        Assert.True(sim.ExecuteCommand(
+            new SetUtilityCommand(coord, UtilityKind.CoolantPipe, Present: false)).Success);
+        Assert.DoesNotContain(coord, sim.PlumbingSolver.CoolantPipes);
+
+        var rejected = sim.ExecuteCommand(
+            new SetUtilityCommand(new GridCoord(0, 0), UtilityKind.PowerCable, Present: true));
+        Assert.False(rejected.Success);
+        Assert.Equal("UtilityNotAllowed", rejected.FailureCode);
+    }
+
+    [Fact]
     public void ToggleDoor_RejectsLocked_AndAlternatesOpenClosed()
     {
         SimulationState sim = CommandTestWorld.Create();

@@ -30,7 +30,8 @@ public sealed class ViewportRenderer
         float2 viewportCenter,
         GridCoord? hoveredTile,
         GridCoord? selectedTile,
-        OverlayMode overlayMode)
+        OverlayMode overlayMode,
+        PlacementPreview? placementPreview = null)
     {
         var grid = sim.Grid;
 
@@ -320,6 +321,15 @@ public sealed class ViewportRenderer
             drawList.AddRect(sMin, sMax, 0xFF00FFFF, 2f, 0, 2.5f);
             if (hoveredTile != selectedTile)
                 DrawConstructionPreview(drawList, sim, camera, viewportCenter, selectedTile.Value);
+        }
+
+        if (placementPreview is { } preview && grid.IsInBounds(preview.Tile))
+        {
+            var pMin = camera.WorldToScreen(new float2(preview.Tile.X, preview.Tile.Y), viewportCenter);
+            var pMax = pMin + new float2(camera.Zoom, camera.Zoom);
+            drawList.AddRectFilled(pMin, pMax, preview.Color);
+            drawList.AddRect(pMin, pMax, 0xFFFFFFFF, 2f, 0, 2f);
+            drawList.AddText(pMin + new float2(3f, 3f), 0xFFFFFFFF, preview.Label);
         }
     }
 

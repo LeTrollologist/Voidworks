@@ -44,6 +44,15 @@ The goal is a simulation where machinery, resources, atmosphere, and people depe
 
 - Buildable machinery includes component fabricators, ice processors, mining lasers, smelters, batteries, reactors, oxygen generators, carbon scrubbers, hydroponics bays, fuel tanks, radiators, and main engines. Power cables and fluid pipes still need to be laid separately.
 
+### Building and utilities
+
+- **Build** opens a global palette of power cables, coolant pipes, fuel lines, and machinery; press `B` to toggle it.
+- Select a tool, then left-click or drag on the ship to place it. Right-click or drag removes utilities. `Esc` cancels placement.
+- `Ctrl+Z` or **Undo Last Utility** restores the previous state of the last utility tile changed.
+- Selecting a machine enters a one-shot placement mode; clicking a free floor tile queues the normal crew construction job with the listed steel/component cost.
+- A translucent tile preview shows the target and invalid placement in red.
+
+
 ### Plumbing and thermal management
 
 - Plumbing network partitioning and connected fluid conduits.

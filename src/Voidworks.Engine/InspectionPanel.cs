@@ -30,10 +30,18 @@ public sealed class InspectionPanel
     private string _commandStatus = string.Empty;
     private readonly SimulationDebugPanel _debugPanel = new();
     private readonly ManagementPanel _managementPanel = new();
+    private readonly PlacementState _placement = new();
     private bool _showDebugPanel;
+    private bool _showBuildPalette;
     private bool _showAlertsPanel = true;
     private bool _showManagementPanel = true;
     public string? LoadRequestedPath { get; private set; }
+
+    public PlacementState Placement => _placement;
+    public bool UndoRequested { get; private set; }
+
+    public void SetCommandStatus(string status) => _commandStatus = status;
+    public void ToggleBuildPalette() => _showBuildPalette = !_showBuildPalette;
 
     /// <summary>
     /// Hide the workstation panels while a modal briefing or mission report owns the
@@ -51,12 +59,15 @@ public sealed class InspectionPanel
     {
         LoadRequestedPath = null;
         FitViewRequested = false;
+        UndoRequested = false;
         if (HideForScenarioOverlay)
             return;
 
         RenderTopTelemetryBar(sim);
         RenderControlToolbar(sim, ref overlayMode);
         RenderInspectorSidebar(sim, selectedTile, selectedCrew, ref selectedMachine);
+        if (_showBuildPalette)
+            RenderBuildPalette();
         if (_showDebugPanel || overlayMode == OverlayMode.CrewPaths)
             RenderCrewPathDebugPanel(sim);
         if (_showManagementPanel)
@@ -178,6 +189,8 @@ public sealed class InspectionPanel
             if (ImGui.Button(" Mgmt ")) _showManagementPanel = !_showManagementPanel;
             ImGui.SameLine();
             if (ImGui.Button(" Fit ")) FitViewRequested = true;
+            ImGui.SameLine();
+            if (ImGui.Button(" Build ")) _showBuildPalette = !_showBuildPalette;
 
             ImGui.Spacing();
             ImGui.TextDisabled("Overlays:");
@@ -252,6 +265,62 @@ public sealed class InspectionPanel
                 ImGui.TextDisabled("Circles mark planned route destinations.");
                 break;
         }
+
+        ImGui.End();
+    }
+
+    private void RenderBuildPalette()
+    {
+        float2 display = ImGui.GetIO().DisplaySize;
+        float paletteHeight = MathF.Max(320f, MathF.Min(620f, display.Y - 200f));
+        float paletteY = MathF.Max(20f, MathF.Min(160f, display.Y - paletteHeight - 20f));
+        ImGui.SetNextWindowPos(new float2(500f, paletteY), ImGuiCond.FirstUseEver);
+        ImGui.SetNextWindowSize(new float2(400f, paletteHeight), ImGuiCond.FirstUseEver);
+        if (!ImGui.Begin("Build & Utilities"))
+        {
+            ImGui.End();
+            return;
+        }
+
+        if (_placement.IsActive)
+        {
+            ImGui.TextColored(new float4(0.4f, 1.0f, 0.8f, 1.0f), $"ACTIVE: {_placement.Label.ToUpperInvariant()}");
+            if (ImGui.Button("Cancel Placement (Esc)"))
+                _placement.Cancel();
+        }
+        else
+        {
+            ImGui.TextDisabled("Select a tool, then click or drag on the ship.");
+        }
+
+        ImGui.Separator();
+        ImGui.TextColored(new float4(0.4f, 0.8f, 1.0f, 1.0f), "UTILITIES");
+        if (ImGui.Button("Power Cable"))
+            _placement.SelectUtility(PlacementTool.PowerCable);
+        ImGui.SameLine();
+        if (ImGui.Button("Coolant Pipe"))
+            _placement.SelectUtility(PlacementTool.CoolantPipe);
+        ImGui.SameLine();
+        if (ImGui.Button("Fuel Line"))
+            _placement.SelectUtility(PlacementTool.PropellantPipe);
+        ImGui.TextDisabled("Left-drag lays; right-drag removes.");
+
+        ImGui.Separator();
+        ImGui.TextColored(new float4(0.4f, 0.8f, 1.0f, 1.0f), "MACHINERY");
+        foreach (BuildOption option in BuildCatalog.Machines)
+        {
+            string cost = option.MachineComponents > 0
+                ? $"{option.SteelPlates} steel + {option.MachineComponents} component"
+                : $"{option.SteelPlates} steel";
+            if (ImGui.Button($"{option.Name} ({cost})"))
+                _placement.SelectMachine(option.Type);
+        }
+
+        ImGui.Separator();
+        if (ImGui.Button("Undo Last Utility"))
+            UndoRequested = true;
+        if (!string.IsNullOrWhiteSpace(_commandStatus))
+            ImGui.TextWrapped(UiText.Im(_commandStatus));
 
         ImGui.End();
     }

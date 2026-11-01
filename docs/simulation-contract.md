@@ -95,6 +95,7 @@ Player actions that change simulation state go through
 | `BuildTileCommand`, `DeconstructTileCommand` | Queue structural construction or removal |
 | `InstallMachineCommand`, `DismantleMachineCommand` | Queue machinery installation or removal |
 | `ToggleUtilityCommand` | Lay/remove power cable, coolant pipe, or fuel line |
+| `SetUtilityCommand` | Idempotently place/remove a utility; used by drag placement and undo |
 | `SetMachineOnlineCommand`, `ResetReactorScramCommand` | Machine controls |
 | `ToggleDoorCommand` | Open/close an unlocked door |
 | `SetJobPriorityCommand`, `CancelJobCommand` | Job orders and work priority |
@@ -114,6 +115,11 @@ Rules:
 - Every outcome is appended to the event log as `CommandApplied` or
   `CommandRejected`, including the failure code, so the UI and future alerting can
   explain why an action failed.
+- The engine placement palette applies utility edits after the UI frame using
+  current ImGui hover state, so a palette click cannot also paint the world. Utility
+  undo history is session-only and restores the previous presence of the last tile
+  changed; machine placement is a one-shot command and is not in the utility undo
+  stack.
 - Debug-only breach creation and patching still mutate tiles directly from the
   engine; they are intentionally outside the player command surface.
 

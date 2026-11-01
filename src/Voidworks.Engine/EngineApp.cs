@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -9,6 +10,7 @@ using Brutal.ImGuiApi.Backends;
 using Brutal.Numerics;
 using Brutal.OpenGlApi;
 using Voidworks.Sim;
+using Voidworks.Sim.Commands;
 using Voidworks.Sim.Crew;
 using Voidworks.Sim.Machinery;
 using Voidworks.Sim.Persistence;
@@ -32,7 +34,14 @@ public sealed class EngineApp
     private bool _isPanning = false;
     private bool _spaceWasPressed = false;
     private bool _leftWasPressed = false;
+    private bool _rightWasPressed = false;
+    private bool _escapeWasPressed = false;
+    private bool _bWasPressed = false;
+    private bool _zWasPressed = false;
     private bool _fitCameraRequested = true;
+    private GridCoord? _lastPaintTile;
+    private bool _lastPaintRemove;
+    private readonly Stack<UtilityUndo> _placementUndo = new();
 
     public unsafe void Run(SimulationState sim)
     {
@@ -149,6 +158,18 @@ public sealed class EngineApp
             }
             _spaceWasPressed = spaceDown;
 
+            bool bDown = window.GetKey(GlfwKey.B) == GlfwKeyAction.Press;
+            if (bDown && !_bWasPressed && !modalOpen && !io.WantCaptureKeyboard)
+                _ui.ToggleBuildPalette();
+            _bWasPressed = bDown;
+
+            bool ctrlDown = window.GetKey(GlfwKey.LeftControl) == GlfwKeyAction.Press ||
+                            window.GetKey(GlfwKey.RightControl) == GlfwKeyAction.Press;
+            bool zDown = window.GetKey(GlfwKey.Z) == GlfwKeyAction.Press;
+            if (ctrlDown && zDown && !_zWasPressed && !modalOpen)
+                UndoLastUtility(sim);
+            _zWasPressed = zDown;
+
             // 1. Advance simulation
             sim.Update(deltaTime);
 
@@ -200,34 +221,53 @@ public sealed class EngineApp
             }
             _lastMousePos = mousePos;
 
-            // Hover and selection
+            // Hover, placement, and selection
             GridCoord? hoveredCoord = null;
+            PlacementPreview? placementPreview = null;
             bool canControlWorld = WorldInputPolicy.CanControlWorld(
                 io.WantCaptureMouse, false, modalOpen);
+            PlacementState placement = _ui.Placement;
+            bool leftDown = window.GetMouseButton(GlfwMouseButton.Left) == GlfwButtonAction.Press;
+            bool rightDown = window.GetMouseButton(GlfwMouseButton.Right) == GlfwButtonAction.Press;
+            bool leftClicked = leftDown && !_leftWasPressed;
+            bool rightClicked = rightDown && !_rightWasPressed;
+            bool escapeDown = window.GetKey(GlfwKey.Escape) == GlfwKeyAction.Press;
+
+            if (!modalOpen && escapeDown && !_escapeWasPressed && placement.IsActive)
+                placement.Cancel();
+            _escapeWasPressed = escapeDown;
+
             if (canControlWorld)
             {
                 hoveredCoord = _camera.ScreenToTile(mousePos, viewportCenter);
 
-                bool leftDown = window.GetMouseButton(GlfwMouseButton.Left) == GlfwButtonAction.Press;
-                if (leftDown && !_leftWasPressed &&
-                    hoveredCoord.HasValue && sim.Grid.IsInBounds(hoveredCoord.Value))
+                if (placement.IsActive && hoveredCoord.HasValue)
+                {
+                    GridCoord target = hoveredCoord.Value;
+                    bool valid = PlacementRules.CanApply(sim, placement, target);
+                    bool removing = rightDown && !placement.IsMachine;
+                    placementPreview = new PlacementPreview(
+                        target,
+                        GetPlacementColor(placement, valid, removing),
+                        placement.Label);
+                }
+                else if (!placement.IsActive && leftClicked &&
+                         hoveredCoord.HasValue && sim.Grid.IsInBounds(hoveredCoord.Value))
                 {
                     _selectedTile = hoveredCoord.Value;
 
-                    // Check if a crew member is on this tile
                     var crewOnTile = sim.Crew.FirstOrDefault(c => c.Crew.Position == hoveredCoord.Value);
                     _selectedCrew = crewOnTile?.Crew;
 
-                    // Check if a machine is on this tile
                     var machOnTile = sim.Machines.FirstOrDefault(m => m.Position == hoveredCoord.Value);
                     _selectedMachine = machOnTile;
                 }
-                _leftWasPressed = leftDown;
             }
             else
             {
-                _leftWasPressed = window.GetMouseButton(GlfwMouseButton.Left) == GlfwButtonAction.Press;
+                _lastPaintTile = null;
             }
+
 
             // 3. ImGui Frame
             glfwBackend.NewFrame();
@@ -245,14 +285,55 @@ public sealed class EngineApp
                 viewportCenter,
                 hoveredCoord,
                 _selectedTile,
-                _overlayMode);
+                _overlayMode,
+                placementPreview);
 
             // Render interactive UI panels
             _ui.HideForScenarioOverlay = _scenarioOverlay.BlocksWorldInput;
             _ui.Render(sim, ref _overlayMode, ref _selectedTile, ref _selectedCrew, ref _selectedMachine);
             if (_ui.FitViewRequested)
                 _fitCameraRequested = true;
+            if (_ui.UndoRequested)
+                UndoLastUtility(sim);
             _scenarioOverlay.Render(sim);
+
+            // Placement is applied after the UI frame so a click on the palette can
+            // never leak through to the world. Hover state is now current, not last-frame.
+            bool pointerOverUi = ImGui.IsWindowHovered(ImGuiHoveredFlags.AnyWindow) ||
+                                 _scenarioOverlay.BlocksWorldInput;
+            if (placement.IsActive && !pointerOverUi && !modalOpen && hoveredCoord.HasValue)
+            {
+                GridCoord target = hoveredCoord.Value;
+                if (placement.IsMachine)
+                {
+                    if (rightClicked)
+                        placement.Cancel();
+                    else if (leftClicked)
+                        PlaceMachine(sim, placement, target);
+                }
+                else if (leftDown || rightDown)
+                {
+                    bool removing = rightDown;
+                    if (_lastPaintTile != target || _lastPaintRemove != removing)
+                    {
+                        PlaceUtility(sim, placement, target, removing);
+                        _lastPaintTile = target;
+                        _lastPaintRemove = removing;
+                    }
+                }
+                else
+                {
+                    _lastPaintTile = null;
+                }
+            }
+            else if (leftDown || rightDown)
+            {
+                _lastPaintTile = null;
+            }
+
+            _leftWasPressed = leftDown;
+            _rightWasPressed = rightDown;
+
             if (_ui.LoadRequestedPath is { } loadPath)
             {
                 try
@@ -285,6 +366,86 @@ public sealed class EngineApp
         ImGui.DestroyContext();
         window.Dispose();
         Glfw.Terminate();
+    }
+
+    private void PlaceUtility(
+        SimulationState sim,
+        PlacementState placement,
+        GridCoord target,
+        bool remove)
+    {
+        if (!PlacementRules.CanApply(sim, placement, target))
+        {
+            _ui.SetCommandStatus($"Cannot place {placement.Label} at {target}.");
+            return;
+        }
+
+        UtilityKind kind = PlacementRules.ToUtilityKind(placement.Tool);
+        bool previous = UtilityPresent(sim, kind, target);
+        SimulationCommandResult result = sim.ExecuteCommand(
+            new SetUtilityCommand(target, kind, Present: !remove));
+        if (result.Success && previous == remove)
+            _placementUndo.Push(new UtilityUndo(target, kind, previous));
+        _ui.SetCommandStatus(result.Message);
+    }
+
+    private void PlaceMachine(SimulationState sim, PlacementState placement, GridCoord target)
+    {
+        if (!PlacementRules.CanApply(sim, placement, target))
+        {
+            _ui.SetCommandStatus($"Cannot build {placement.Label} at {target}; choose an empty floor tile.");
+            return;
+        }
+
+        BuildOption option = BuildCatalog.Get(placement.MachineType);
+        SimulationCommandResult result = sim.ExecuteCommand(new InstallMachineCommand(
+            target,
+            option.Type,
+            option.SteelPlates,
+            option.MachineComponents,
+            option.WorkSeconds));
+        _ui.SetCommandStatus(result.Message);
+        if (result.Success)
+            placement.Cancel();
+    }
+
+    private void UndoLastUtility(SimulationState sim)
+    {
+        if (_placementUndo.Count == 0)
+        {
+            _ui.SetCommandStatus("Nothing to undo.");
+            return;
+        }
+
+        UtilityUndo edit = _placementUndo.Pop();
+        SimulationCommandResult result = sim.ExecuteCommand(
+            new SetUtilityCommand(edit.Target, edit.Utility, edit.PreviousPresent));
+        _ui.SetCommandStatus("Undo: " + result.Message);
+    }
+
+    private static bool UtilityPresent(SimulationState sim, UtilityKind kind, GridCoord target) => kind switch
+    {
+        UtilityKind.PowerCable => sim.Cables.Contains(target),
+        UtilityKind.CoolantPipe => sim.PlumbingSolver.CoolantPipes.Contains(target),
+        UtilityKind.PropellantPipe => sim.PlumbingSolver.PropellantPipes.Contains(target),
+        _ => false
+    };
+
+    private static uint GetPlacementColor(PlacementState placement, bool valid, bool removing)
+    {
+        if (!valid)
+            return 0x66FF3030;
+        if (removing)
+            return 0x66FF7040;
+
+        return placement.Tool switch
+        {
+            PlacementTool.PowerCable => 0x6620C0FF,
+            PlacementTool.CoolantPipe => 0x66FFA020,
+            PlacementTool.PropellantPipe => 0x662080FF,
+            PlacementTool.Machine => 0x6620FF80,
+            _ => 0x66FFFFFF
+        };
     }
 
     private static unsafe IntPtr ResolveGlFunction(byte* name)

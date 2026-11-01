@@ -67,6 +67,53 @@ public sealed record ToggleUtilityCommand(
     }
 }
 
+public sealed record SetUtilityCommand(
+    GridCoord Target,
+    UtilityKind Utility,
+    bool Present) : ISimulationCommand
+{
+    public string Name => "SetUtility";
+
+    public SimulationCommandResult Execute(SimulationState simulation)
+    {
+        if (!simulation.Grid.IsInBounds(Target))
+            return SimulationCommandResult.Fail("InvalidCoordinate", $"Target {Target} is outside the ship grid.");
+
+        TileType tile = simulation.Grid[Target].Type;
+        if (tile is TileType.Space or TileType.Asteroid)
+            return SimulationCommandResult.Fail("UtilityNotAllowed",
+                $"Utilities cannot be installed on {tile} at {Target}.");
+
+        bool changed;
+        string noun;
+        switch (Utility)
+        {
+            case UtilityKind.PowerCable:
+                changed = Present ? simulation.Cables.Add(Target) : simulation.Cables.Remove(Target);
+                noun = "Power cable";
+                break;
+            case UtilityKind.CoolantPipe:
+                changed = Present
+                    ? simulation.PlumbingSolver.CoolantPipes.Add(Target)
+                    : simulation.PlumbingSolver.CoolantPipes.Remove(Target);
+                noun = "Coolant pipe";
+                break;
+            case UtilityKind.PropellantPipe:
+                changed = Present
+                    ? simulation.PlumbingSolver.PropellantPipes.Add(Target)
+                    : simulation.PlumbingSolver.PropellantPipes.Remove(Target);
+                noun = "Fuel line";
+                break;
+            default:
+                return SimulationCommandResult.Fail("InvalidUtility", $"Unknown utility kind {Utility}.");
+        }
+
+        string state = Present ? "laid" : "removed";
+        return SimulationCommandResult.Ok(
+            $"{noun} {state} at {Target}." + (changed ? string.Empty : " (already in that state)"));
+    }
+}
+
 public sealed record ResetReactorScramCommand(Guid MachineId) : ISimulationCommand
 {
     public string Name => "ResetReactorScram";
