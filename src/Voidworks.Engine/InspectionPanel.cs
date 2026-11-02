@@ -55,7 +55,8 @@ public sealed class InspectionPanel
         ref OverlayMode overlayMode,
         ref GridCoord? selectedTile,
         ref CrewMember? selectedCrew,
-        ref Machine? selectedMachine)
+        ref Machine? selectedMachine,
+        GridCoord? hoveredTile = null)
     {
         LoadRequestedPath = null;
         FitViewRequested = false;
@@ -64,7 +65,7 @@ public sealed class InspectionPanel
             return;
 
         RenderTopTelemetryBar(sim);
-        RenderControlToolbar(sim, ref overlayMode);
+        RenderControlToolbar(sim, ref overlayMode, hoveredTile, selectedTile);
         RenderInspectorSidebar(sim, selectedTile, selectedCrew, ref selectedMachine);
         if (_showBuildPalette)
             RenderBuildPalette();
@@ -152,7 +153,11 @@ public sealed class InspectionPanel
         ImGui.End();
     }
 
-    private void RenderControlToolbar(SimulationState sim, ref OverlayMode overlayMode)
+    private void RenderControlToolbar(
+        SimulationState sim,
+        ref OverlayMode overlayMode,
+        GridCoord? hoveredTile,
+        GridCoord? selectedTile)
     {
         LayoutRect layout = WorkstationLayout.Toolbar(ImGui.GetIO().DisplaySize);
         ImGui.SetNextWindowPos(layout.Position, ImGuiCond.Always);
@@ -210,6 +215,10 @@ public sealed class InspectionPanel
             if (ImGui.RadioButton("Hazards", overlayMode == OverlayMode.Hazards)) overlayMode = OverlayMode.Hazards;
             ImGui.SameLine();
             if (ImGui.RadioButton("Crew Paths", overlayMode == OverlayMode.CrewPaths)) overlayMode = OverlayMode.CrewPaths;
+
+            ImGui.SameLine(940f);
+            ImGui.TextDisabled(UiText.Im(
+                $"Hover: {(hoveredTile?.ToString() ?? "-")}   Selected: {(selectedTile?.ToString() ?? "-")}"));
         }
         ImGui.End();
     }

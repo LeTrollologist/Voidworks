@@ -232,6 +232,22 @@ Layout: telemetry bar and toolbar share the column left of the inspector
 DPI: cursor coordinates scale from window size to ImGui display size
 ```
 
+## Controls
+
+```
+Pause/Resume: Space
+Pan: Middle mouse drag
+Zoom: Mouse wheel
+Select: Left click
+Build palette: B
+Tools: 1 cable, 2 coolant, 3 fuel, 4 battery, 5 oxygen generator
+Toggle selected machine: O
+Cancel placement: Esc
+Undo utility: Ctrl+Z
+```
+
+The toolbar shows hovered and selected tile coordinates. The game does not inject or automate desktop input.
+
 ## Save format
 
 `SimulationSerializer.CurrentSaveFormatVersion` is **7**.

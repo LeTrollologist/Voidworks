@@ -38,9 +38,14 @@ public sealed class EngineApp
     private bool _escapeWasPressed = false;
     private bool _bWasPressed = false;
     private bool _zWasPressed = false;
+    private bool _oWasPressed = false;
     private bool _fitCameraRequested = true;
     private GridCoord? _lastPaintTile;
     private bool _lastPaintRemove;
+    private GridCoord? _debugHoverTile;
+    private bool _debugTerminalLogged;
+    private static readonly bool UiDebug =
+        Environment.GetEnvironmentVariable("VOIDWORKS_UI_DEBUG") == "1";
     private readonly Stack<UtilityUndo> _placementUndo = new();
 
     public unsafe void Run(SimulationState sim)
@@ -170,8 +175,43 @@ public sealed class EngineApp
                 UndoLastUtility(sim);
             _zWasPressed = zDown;
 
+            bool oDown = window.GetKey(GlfwKey.O) == GlfwKeyAction.Press;
+            if (oDown && !_oWasPressed && !modalOpen && !io.WantCaptureKeyboard &&
+                _selectedMachine != null)
+            {
+                var result = sim.ExecuteCommand(
+                    new SetMachineOnlineCommand(_selectedMachine.Id, !_selectedMachine.IsOnline));
+                _ui.SetCommandStatus(result.Message);
+                if (UiDebug)
+                    Console.WriteLine($"[UI] Machine toggle: {result.Message}");
+            }
+            _oWasPressed = oDown;
+
+            if (!modalOpen && !io.WantCaptureKeyboard)
+            {
+                PlacementState hotkeyPlacement = _ui.Placement;
+                if (window.GetKey(GlfwKey.Number1) == GlfwKeyAction.Press)
+                    hotkeyPlacement.SelectUtility(PlacementTool.PowerCable);
+                else if (window.GetKey(GlfwKey.Number2) == GlfwKeyAction.Press)
+                    hotkeyPlacement.SelectUtility(PlacementTool.CoolantPipe);
+                else if (window.GetKey(GlfwKey.Number3) == GlfwKeyAction.Press)
+                    hotkeyPlacement.SelectUtility(PlacementTool.PropellantPipe);
+                else if (window.GetKey(GlfwKey.Number4) == GlfwKeyAction.Press)
+                    hotkeyPlacement.SelectMachine(MachineType.Battery);
+                else if (window.GetKey(GlfwKey.Number5) == GlfwKeyAction.Press)
+                    hotkeyPlacement.SelectMachine(MachineType.OxygenGenerator);
+            }
+
             // 1. Advance simulation
             sim.Update(deltaTime);
+            if (UiDebug && sim.ActiveScenario is { } debugScenario &&
+                (debugScenario.IsCompleted || debugScenario.IsFailed) && !_debugTerminalLogged)
+            {
+                _debugTerminalLogged = true;
+                Console.WriteLine(debugScenario.IsCompleted
+                    ? $"[UI] MISSION COMPLETE at {debugScenario.ElapsedSeconds:F1}s"
+                    : $"[UI] MISSION FAILED at {debugScenario.ElapsedSeconds:F1}s: {debugScenario.FailureReason}");
+            }
 
             // 2. Handle input for camera pan and tile/crew/machine selection
             var winSize = window.Size;
@@ -240,6 +280,11 @@ public sealed class EngineApp
             if (canControlWorld)
             {
                 hoveredCoord = _camera.ScreenToTile(mousePos, viewportCenter);
+                if (UiDebug && hoveredCoord != _debugHoverTile)
+                {
+                    _debugHoverTile = hoveredCoord;
+                    Console.WriteLine($"[UI] Hover {hoveredCoord}");
+                }
 
                 if (placement.IsActive && hoveredCoord.HasValue)
                 {
@@ -261,6 +306,9 @@ public sealed class EngineApp
 
                     var machOnTile = sim.Machines.FirstOrDefault(m => m.Position == hoveredCoord.Value);
                     _selectedMachine = machOnTile;
+                    if (UiDebug)
+                        Console.WriteLine(
+                            $"[UI] Selected {hoveredCoord.Value}; machine={machOnTile?.Name ?? "none"}; crew={crewOnTile?.Crew.Name ?? "none"}");
                 }
             }
             else
@@ -290,7 +338,7 @@ public sealed class EngineApp
 
             // Render interactive UI panels
             _ui.HideForScenarioOverlay = _scenarioOverlay.BlocksWorldInput;
-            _ui.Render(sim, ref _overlayMode, ref _selectedTile, ref _selectedCrew, ref _selectedMachine);
+            _ui.Render(sim, ref _overlayMode, ref _selectedTile, ref _selectedCrew, ref _selectedMachine, hoveredCoord);
             if (_ui.FitViewRequested)
                 _fitCameraRequested = true;
             if (_ui.UndoRequested)
@@ -387,6 +435,8 @@ public sealed class EngineApp
         if (result.Success && previous == remove)
             _placementUndo.Push(new UtilityUndo(target, kind, previous));
         _ui.SetCommandStatus(result.Message);
+        if (UiDebug)
+            Console.WriteLine($"[UI] Utility: {result.Message}");
     }
 
     private void PlaceMachine(SimulationState sim, PlacementState placement, GridCoord target)
@@ -405,6 +455,8 @@ public sealed class EngineApp
             option.MachineComponents,
             option.WorkSeconds));
         _ui.SetCommandStatus(result.Message);
+        if (UiDebug)
+            Console.WriteLine($"[UI] Machine: {result.Message}");
         if (result.Success)
             placement.Cancel();
     }
@@ -421,6 +473,8 @@ public sealed class EngineApp
         SimulationCommandResult result = sim.ExecuteCommand(
             new SetUtilityCommand(edit.Target, edit.Utility, edit.PreviousPresent));
         _ui.SetCommandStatus("Undo: " + result.Message);
+        if (UiDebug)
+            Console.WriteLine($"[UI] Undo: {result.Message}");
     }
 
     private static bool UtilityPresent(SimulationState sim, UtilityKind kind, GridCoord target) => kind switch

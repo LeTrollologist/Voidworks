@@ -8,11 +8,14 @@ A first-time player can, using only the normal UI:
 
 1. Read the opening briefing and understand the immediate problem.
 2. Identify the severed coolant loop and the offline oxygen generator.
-3. Restore the coolant loop with utility commands.
+3. Restore the coolant loop and power its external radiator pump.
 4. Restore oxygen generation and keep it powered.
 5. Build the auxiliary battery using construction orders and crew hauling.
 6. Reach a mission-complete or mission-failed report without developer panels or console commands.
 7. Recover from failure by loading an earlier save or by continuing to observe the aftermath.
+
+**Status:** automated command-layer completion is covered by `VerticalSlicePlaythroughTests`.
+The fresh-start mouse-only run and independent new-player test remain manual validation items.
 
 The run should take roughly 10-20 minutes at 1x-5x speed. The clock is paused while the briefing is open.
 

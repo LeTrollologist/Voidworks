@@ -48,9 +48,10 @@ The goal is a simulation where machinery, resources, atmosphere, and people depe
 
 - **Build** opens a global palette of power cables, coolant pipes, fuel lines, and machinery; press `B` to toggle it.
 - Select a tool, then left-click or drag on the ship to place it. Right-click or drag removes utilities. `Esc` cancels placement.
+- Quick tool keys: `1` power cable, `2` coolant pipe, `3` fuel line, `4` battery, `5` oxygen generator. Press `O` to turn the selected machine on or off.
 - `Ctrl+Z` or **Undo Last Utility** restores the previous state of the last utility tile changed.
 - Selecting a machine enters a one-shot placement mode; clicking a free floor tile queues the normal crew construction job with the listed steel/component cost.
-- A translucent tile preview shows the target and invalid placement in red.
+- A translucent tile preview shows the target and invalid placement in red. The toolbar also shows the hovered and selected tile coordinates.
 
 
 ### Plumbing and thermal management
