@@ -12,6 +12,7 @@ Simulation update ordering, job lifecycle and retry rules, invariant checks, sav
 
 ## Recent Progress
 
+- **2026-11-02:** Completed the fresh-start UI playthrough of `derelict-crisis`: mission complete at 185.5s, all four objectives, auxiliary battery built at the selected tile, radiator feed powered, and save/load preserved the completed state. A loading UI quirk was clarified as the intended terminal mission report. Added quick placement hotkeys (`1`-`5`), machine toggle (`O`), and hovered/selected tile readout.
 - **2026-10-31:** Added a global build and utilities palette with drag painting, idempotent utility commands, red invalid-placement previews, one-shot machine placement, `Esc` cancellation, session undo (`Ctrl+Z` or the palette button), quick tool hotkeys (`1`-`5`), selected-machine toggle (`O`), and a hovered/selected tile readout. The palette applies edits after the UI frame to prevent UI clicks from leaking into the world. Earlier in the day, Phase 5 diagnostics and the cascade scenario were completed, and Phase 6 gained its default primary mission with briefing, objective status, contextual guidance, and terminal reports; 191 tests pass. The fresh-start mouse-only and independent new-player validations remain manual Phase 6 items.
 - **2026-10-27:** Baseline re-established at 147 passing tests. Jobs have explicit lifecycle states, reservation release, bounded retry, and event history; construction reserves materials and returns them on cancellation; invariants cover ownership, placement, doors, rooms, and utilities; saves use format v7; all scenarios plus the industrial chain and built-machine lifecycle have headless coverage; player actions use validated commands; the management UI covers roster, jobs, stockpiles, production, overlays, alerts, and save slots; machines support recipe queues, pause/limits, wear, breakdown, and crew repair; and stockpiles are capacity-limited with life-support-first hauling priorities. The rules are documented in [`docs/simulation-contract.md`](docs/simulation-contract.md).
 
@@ -136,7 +137,7 @@ Use the existing `asteroid-expedition`, `derelict-crisis`, and emergency scenari
 - [x] Add a clear opening briefing and concise contextual guidance.
 - [x] Show objective progress, important events, success, and failure.
 - [x] Add recovery options where appropriate without removing consequences.
-- [ ] Play through from a fresh start using only the UI.
+- [x] Play through from a fresh start using only the UI.
 - [ ] Have a new player complete it without developer assistance; record confusion and failure points.
 
 The scripted path and confusion log live in [`docs/vertical-slice-playtest.md`](docs/vertical-slice-playtest.md).

@@ -41,13 +41,27 @@ The run should take roughly 10-20 minutes at 1x-5x speed. The clock is paused wh
 - Objective status lines should state the current temperature, crew health, loop state, or battery count.
 - Failure reasons must be specific: SCRAM, time limit, or all crew lost.
 
+## Manual run log
+
+### 2026-11-02 — successful fresh-start UI run
+
+- Mission: `derelict-crisis`
+- Result: **MISSION COMPLETE at 185.5s**
+- Objectives: 4/4 completed (`coolant-loop`, `thermal-stability`, `life-support`, `auxiliary-power`)
+- Battery: queued and built at the selected tile `(13,4)`; saved state contains two batteries
+- Utilities: coolant loop connected and radiator feed powered
+- Save/load: save slot 1 reloaded with the mission-complete report, 2 batteries, 5 coolant pipes, and 26 cables
+- Confusion point: loading a completed save immediately shows the mission report, which initially looked unexpected. This is intended terminal-state behavior; **CONTINUE OBSERVING** and **STAY PAUSED** return to the ship.
+- Minor issue: an accidental coolant pipe was placed at `(2,1)` during the run. It did not affect completion, but drag placement should still be reviewed for accidental strokes.
+- Independent new-player test: not yet completed without step-by-step developer guidance.
+
 ## Confusion log
 
 Record each point where the player hesitates or takes a wrong action.
 
 | Time | Player action | Expected result | Actual result | Cause / suggested fix |
 | --- | --- | --- | --- | --- |
-| | | | | |
+| 2026-11-02 | Clicked **Load Ship** after saving a completed mission | Resume the ship view | Mission report appeared | Expected terminal-state behavior; add a clearer “loaded completed mission” note in the report |
 
 ## Known non-goals for this slice
 
