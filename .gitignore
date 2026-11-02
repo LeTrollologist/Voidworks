@@ -9,3 +9,5 @@ obj/
 imgui.ini
 gui-out.txt
 gui-err.txt
+ui-log*.txt
+ui-err*.txt
