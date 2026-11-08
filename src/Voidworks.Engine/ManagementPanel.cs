@@ -37,7 +37,9 @@ public sealed class ManagementPanel
             return;
         }
 
-        _roster.Render(sim, ref selectedCrew, ref selectedTile, ref selectedMachine);
+        string rosterStatus = _roster.Render(sim, ref selectedCrew, ref selectedTile, ref selectedMachine);
+        if (!string.IsNullOrEmpty(rosterStatus))
+            _status = rosterStatus;
         ImGui.Separator();
         RenderJobs(sim, ref selectedTile, ref selectedCrew, ref selectedMachine);
         ImGui.Separator();

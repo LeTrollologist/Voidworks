@@ -71,7 +71,7 @@ public sealed class EngineApp
 
         var window = Glfw.CreateWindow(new GlfwWindow.CreateInfo
         {
-            Title = "Voidworks - The Living Hull",
+            Title = $"Voidworks {BuildInfo.Version} - The Living Hull",
             Size = new int2(initialWidth, initialHeight),
         });
 

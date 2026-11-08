@@ -42,7 +42,7 @@ public class SaveLifecycleTests
 
         string json = SimulationSerializer.SaveToJson(sim);
         Assert.Contains($"\"SaveFormatVersion\": {SimulationSerializer.CurrentSaveFormatVersion}", json);
-        Assert.Equal(7, SimulationSerializer.CurrentSaveFormatVersion);
+        Assert.Equal(8, SimulationSerializer.CurrentSaveFormatVersion);
 
         var restored = SimulationSerializer.LoadFromJson(json);
         var restoredJob = Assert.Single(restored.JobManager.ActiveJobs);

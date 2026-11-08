@@ -21,10 +21,10 @@ public static class SimulationSerializer
     /// <summary>
     /// Current save format. Version 3 added job lifecycle state, version 4 job
     /// material reservations, version 5 machine production controls, version 6
-    /// production queues, and version 7 machine condition. Older versions load with
-    /// defaults for features they predate.
+    /// production queues, version 7 machine condition, and version 8 crew skills and
+    /// work priorities. Older versions load with defaults for features they predate.
     /// </summary>
-    public const int CurrentSaveFormatVersion = 7;
+    public const int CurrentSaveFormatVersion = 8;
     public const int MinimumSupportedSaveFormatVersion = 0;
     private const long MaximumSavedGridTileCount = 1_000_000;
 
@@ -236,7 +236,19 @@ public static class SimulationSerializer
                     item.IsCarried = true;
                     return ToItemDto(item);
                 }).ToList(),
-                EquippedTank = c.Crew.EquippedOxygenTank != null ? ToCarriedItemDto(c.Crew.EquippedOxygenTank) : null
+                EquippedTank = c.Crew.EquippedOxygenTank != null ? ToCarriedItemDto(c.Crew.EquippedOxygenTank) : null,
+                Skills = Enum.GetValues<CrewSkill>()
+                    .Select(skill => new CrewSkillSaveDto
+                    {
+                        Skill = skill,
+                        Level = c.Crew.GetSkill(skill)
+                    }).ToList(),
+                WorkPriorities = Enum.GetValues<CrewSkill>()
+                    .Select(skill => new CrewWorkPrioritySaveDto
+                    {
+                        Skill = skill,
+                        Priority = c.Crew.GetWorkPriority(skill)
+                    }).ToList()
             }).ToList(),
             Jobs = sim.JobManager.ActiveJobs.Select(ToJobDto).ToList(),
             ScenarioId = sim.ActiveScenario?.Id,
@@ -398,6 +410,13 @@ public static class SimulationSerializer
                 IsEquippedWithSuit = cDto.IsEquippedWithSuit
             };
             crew.RestoreId(cDto.Id);
+
+            if (cDto.Skills != null)
+                foreach (var skillDto in cDto.Skills)
+                    crew.SetSkill(skillDto.Skill, skillDto.Level);
+            if (cDto.WorkPriorities != null)
+                foreach (var priorityDto in cDto.WorkPriorities)
+                    crew.SetWorkPriority(priorityDto.Skill, priorityDto.Priority);
 
             if (cDto.BunkX.HasValue && cDto.BunkY.HasValue)
             {
@@ -669,6 +688,31 @@ public static class SimulationSerializer
                 ValidateDiagnostic(crew.LastDiagnostic, dto.GridWidth, dto.GridHeight);
             if (crew.Inventory == null || crew.CurrentPath == null || crew.PendingSubJobs == null)
                 throw new InvalidDataException($"Crew member '{crew.Name}' contains a missing or null collection.");
+
+            if (crew.Skills == null || crew.WorkPriorities == null)
+                throw new InvalidDataException($"Crew member '{crew.Name}' contains missing skills or work priorities.");
+            if (crew.Skills.Count != 0)
+            {
+                if (crew.Skills.Select(entry => entry.Skill).Distinct().Count() != crew.Skills.Count)
+                    throw new InvalidDataException($"Crew member '{crew.Name}' contains duplicate skill entries.");
+                foreach (var skill in crew.Skills)
+                {
+                    if (!Enum.IsDefined(skill.Skill))
+                        throw new InvalidDataException($"Crew member '{crew.Name}' contains an unknown skill.");
+                    if (skill.Level < CrewSkillRules.MinLevel || skill.Level > CrewSkillRules.MaxLevel)
+                        throw new InvalidDataException($"Crew member '{crew.Name}' contains an out-of-range skill level.");
+                }
+            }
+            if (crew.WorkPriorities.Count != 0)
+            {
+                if (crew.WorkPriorities.Select(entry => entry.Skill).Distinct().Count() != crew.WorkPriorities.Count)
+                    throw new InvalidDataException($"Crew member '{crew.Name}' contains duplicate work priorities.");
+                foreach (var priority in crew.WorkPriorities)
+                {
+                    if (!Enum.IsDefined(priority.Skill) || !CrewSkillRules.IsDefined(priority.Priority))
+                        throw new InvalidDataException($"Crew member '{crew.Name}' contains an unknown work priority.");
+                }
+            }
             foreach (var item in crew.Inventory)
             {
                 ValidateItem(item, itemIds, dto.GridWidth, dto.GridHeight);
@@ -1221,6 +1265,24 @@ public sealed class CrewSaveDto
     public double? Morale { get; set; }
     public List<ItemSaveDto> Inventory { get; set; } = new();
     public ItemSaveDto? EquippedTank { get; set; }
+
+    /// <summary>Version 8 crew proficiency; absent in older saves.</summary>
+    public List<CrewSkillSaveDto> Skills { get; set; } = new();
+
+    /// <summary>Version 8 per-category work priorities; absent in older saves.</summary>
+    public List<CrewWorkPrioritySaveDto> WorkPriorities { get; set; } = new();
+}
+
+public sealed class CrewSkillSaveDto
+{
+    public CrewSkill Skill { get; set; }
+    public int Level { get; set; } = CrewSkillRules.DefaultLevel;
+}
+
+public sealed class CrewWorkPrioritySaveDto
+{
+    public CrewSkill Skill { get; set; }
+    public WorkPriority Priority { get; set; } = WorkPriority.Normal;
 }
 
 public sealed class JobSaveDto

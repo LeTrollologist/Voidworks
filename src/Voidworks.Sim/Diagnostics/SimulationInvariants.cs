@@ -69,6 +69,17 @@ public static class SimulationInvariants
             if (crew.AssignedBunkCoord.HasValue && !sim.Grid.IsInBounds(crew.AssignedBunkCoord.Value))
                 Report("BunkOutOfBounds", $"Crew member '{crew.Name}' has an out-of-bounds bunk.");
 
+            foreach (CrewSkill skill in Enum.GetValues<CrewSkill>())
+            {
+                int level = crew.GetSkill(skill);
+                if (level < CrewSkillRules.MinLevel || level > CrewSkillRules.MaxLevel)
+                    Report("CrewSkillOutOfRange",
+                        $"Crew member '{crew.Name}' has an out-of-range {skill} skill level {level}.");
+                if (!CrewSkillRules.IsDefined(crew.GetWorkPriority(skill)))
+                    Report("CrewPriorityInvalid",
+                        $"Crew member '{crew.Name}' has an invalid {skill} work priority.");
+            }
+
             foreach (Item item in crew.Inventory)
             {
                 RegisterItem(item, $"crew '{crew.Name}' inventory");

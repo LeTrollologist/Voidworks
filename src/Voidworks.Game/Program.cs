@@ -55,6 +55,12 @@ for (int i = 0; i < args.Length; i++)
 if (loadPath != null && requestedScenarioId != null)
     throw new ArgumentException("Use the scenario stored in the save file, or start a new --scenario run; the options cannot be combined.");
 
+if (args.Contains("--version", StringComparer.OrdinalIgnoreCase))
+{
+    Console.WriteLine($"Voidworks {BuildInfo.Version}");
+    return;
+}
+
 if (requestedScenarioId == null && loadPath == null && !sandboxRequested)
     requestedScenarioId = ScenarioCatalog.PrimaryScenarioId;
 
@@ -63,7 +69,7 @@ bool forceConsole = args.Contains("--console", StringComparer.OrdinalIgnoreCase)
                     loadPath != null || savePath != null || requestedTicks.HasValue;
 
 Console.WriteLine("==================================================================");
-Console.WriteLine("                 VOIDWORKS - THE LIVING HULL                      ");
+Console.WriteLine($"            VOIDWORKS {BuildInfo.Version} - THE LIVING HULL");
 Console.WriteLine("          \"Keep the ship running. Keep the crew alive.\"           ");
 Console.WriteLine("==================================================================\n");
 
@@ -156,12 +162,21 @@ for (int x = 10; x <= 15; x++)
 // 6. Crew Complement
 CrewMember? engineer = new CrewMember("Engineer Miller", new GridCoord(11, 4), "Engineer");
 engineer.MoveSpeed = 2.5;
+engineer.SetSkill(CrewSkill.Construction, 6);
+engineer.SetSkill(CrewSkill.Repair, 9);
+engineer.SetSkill(CrewSkill.Logistics, 4);
 
 var botanist = new CrewMember("Botanist Chen", new GridCoord(4, 2), "Botanist");
 botanist.AssignedBunkCoord = new GridCoord(5, 5);
+botanist.SetSkill(CrewSkill.Construction, 4);
+botanist.SetSkill(CrewSkill.Repair, 5);
+botanist.SetSkill(CrewSkill.Logistics, 7);
 
 var pilot = new CrewMember("Pilot Reynolds", new GridCoord(2, 2), "Pilot");
 pilot.AssignedBunkCoord = new GridCoord(5, 6);
+pilot.SetSkill(CrewSkill.Construction, 5);
+pilot.SetSkill(CrewSkill.Repair, 4);
+pilot.SetSkill(CrewSkill.Logistics, 8);
 
 sim.Crew.Add(new CrewAI(engineer));
 sim.Crew.Add(new CrewAI(botanist));

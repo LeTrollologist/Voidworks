@@ -323,7 +323,8 @@ public sealed class CrewAI
         var emergencyJob = jobManager.ClaimHighestPriorityJob(
             Crew,
             _deferredJobTimer > 0.0 ? _deferredJobId : null,
-            grid);
+            grid,
+            job => Crew.GetPriorityBias(job.SkillCategory));
         if (emergencyJob != null && emergencyJob.Priority >= 100)
         {
             if (emergencyJob.Type == JobType.RepairBreach)
@@ -822,7 +823,7 @@ public sealed class CrewAI
         }
 
         job.WorkRemainingSeconds = Math.Max(
-            0.0, job.WorkRemainingSeconds - dt * Crew.Psychology.WorkRateMultiplier);
+            0.0, job.WorkRemainingSeconds - dt * WorkRate(job));
         if (job.WorkRemainingSeconds > 0.0)
         {
             CurrentActivity = $"Repairing {machine.Type} ({job.WorkRemainingSeconds:F1}s)";
@@ -836,6 +837,13 @@ public sealed class CrewAI
         _moveAccumulator = 0.0;
         CurrentActivity = $"Repaired {machine.Type} at {machine.Position}";
     }
+
+    /// <summary>
+    /// Combined work rate for a job: psychology (motivation, stress) multiplied by
+    /// the crew member's proficiency in the job's discipline.
+    /// </summary>
+    private double WorkRate(Job job)
+        => Crew.Psychology.WorkRateMultiplier * Crew.GetSkillMultiplier(job.SkillCategory);
 
     private void ExecuteFetchItem(ShipGrid grid, JobManager jobManager)
     {
@@ -1117,7 +1125,7 @@ public sealed class CrewAI
         }
 
         job.WorkRemainingSeconds = Math.Max(
-            0.0, job.WorkRemainingSeconds - dt * Crew.Psychology.WorkRateMultiplier);
+            0.0, job.WorkRemainingSeconds - dt * WorkRate(job));
         if (job.WorkRemainingSeconds > 0.0)
         {
             CurrentActivity = $"Constructing at {job.TargetCoord} ({job.WorkRemainingSeconds:F1}s)";
@@ -1234,7 +1242,7 @@ public sealed class CrewAI
         }
 
         job.WorkRemainingSeconds = Math.Max(
-            0.0, job.WorkRemainingSeconds - dt * Crew.Psychology.WorkRateMultiplier);
+            0.0, job.WorkRemainingSeconds - dt * WorkRate(job));
         if (job.WorkRemainingSeconds > 0.0)
         {
             CurrentActivity = $"Deconstructing at {job.TargetCoord} ({job.WorkRemainingSeconds:F1}s)";
@@ -1372,7 +1380,7 @@ public sealed class CrewAI
             }
 
             CurrentActivity = $"Welding breach at {breachCoord}...";
-            repairJob.WorkRemainingSeconds -= dt * Crew.Psychology.WorkRateMultiplier;
+            repairJob.WorkRemainingSeconds -= dt * WorkRate(repairJob);
 
             if (repairJob.WorkRemainingSeconds <= 0)
             {
@@ -1458,7 +1466,7 @@ public sealed class CrewAI
 
         repairJob.WorkRemainingSeconds = Math.Max(
             0.0,
-            repairJob.WorkRemainingSeconds - dt * Crew.Psychology.WorkRateMultiplier * 0.5);
+            repairJob.WorkRemainingSeconds - dt * WorkRate(repairJob) * 0.5);
         CurrentActivity = $"Assisting breach repair at {repairJob.TargetCoord}";
     }
 

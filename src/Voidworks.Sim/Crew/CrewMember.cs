@@ -8,6 +8,20 @@ namespace Voidworks.Sim.Crew;
 
 public sealed class CrewMember
 {
+    private readonly Dictionary<CrewSkill, int> _skills = new()
+    {
+        [CrewSkill.Construction] = CrewSkillRules.DefaultLevel,
+        [CrewSkill.Repair] = CrewSkillRules.DefaultLevel,
+        [CrewSkill.Logistics] = CrewSkillRules.DefaultLevel
+    };
+
+    private readonly Dictionary<CrewSkill, WorkPriority> _workPriorities = new()
+    {
+        [CrewSkill.Construction] = WorkPriority.Normal,
+        [CrewSkill.Repair] = WorkPriority.Normal,
+        [CrewSkill.Logistics] = WorkPriority.Normal
+    };
+
     public Guid Id { get; private set; } = Guid.NewGuid();
     public string Name { get; set; }
     public GridCoord Position { get; set; }
@@ -54,6 +68,32 @@ public sealed class CrewMember
 
     public bool HasItem(ItemType type) => Inventory.Any(i => i.Type == type);
     public Item? GetItem(ItemType type) => Inventory.FirstOrDefault(i => i.Type == type);
+
+    public int GetSkill(CrewSkill skill) => _skills[skill];
+
+    public void SetSkill(CrewSkill skill, int level)
+    {
+        if (!Enum.IsDefined(skill))
+            throw new ArgumentException($"Unknown crew skill value {(int)skill}.", nameof(skill));
+        _skills[skill] = CrewSkillRules.ClampLevel(level);
+    }
+
+    /// <summary>Work-rate multiplier applied on top of physiology and psychology.</summary>
+    public double GetSkillMultiplier(CrewSkill skill) => CrewSkillRules.WorkSpeedMultiplier(_skills[skill]);
+
+    public WorkPriority GetWorkPriority(CrewSkill skill) => _workPriorities[skill];
+
+    public void SetWorkPriority(CrewSkill skill, WorkPriority priority)
+    {
+        if (!Enum.IsDefined(skill))
+            throw new ArgumentException($"Unknown crew skill value {(int)skill}.", nameof(skill));
+        if (!Enum.IsDefined(priority))
+            throw new ArgumentException($"Unknown work priority value {(int)priority}.", nameof(priority));
+        _workPriorities[skill] = priority;
+    }
+
+    /// <summary>Job-selection score adjustment from this crew member's preferences.</summary>
+    public int GetPriorityBias(CrewSkill skill) => CrewSkillRules.SelectionBias(_workPriorities[skill]);
 
     public bool PickUp(Item item)
     {

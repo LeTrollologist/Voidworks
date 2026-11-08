@@ -99,6 +99,7 @@ Player actions that change simulation state go through
 | `SetMachineOnlineCommand`, `ResetReactorScramCommand` | Machine controls |
 | `ToggleDoorCommand` | Open/close an unlocked door |
 | `SetJobPriorityCommand`, `CancelJobCommand` | Job orders and work priority |
+| `SetCrewWorkPriorityCommand` | Per-crew preference for a work discipline |
 | `TransferCoolantCommand` | Transfer coolant from the ship reserve |
 
 Rules:
@@ -141,6 +142,34 @@ Machines expose `ProductionPaused`, `ProductionLimit` (-1 = unlimited),
 - `ProductionDiagnostics.GetBlockReason` explains idle states: offline, no power,
   paused, limit reached, empty manual queue, unsupported order, or missing inputs.
 - Controls and queues are persisted in save format version 6.
+
+## Crew skills and work priorities
+
+Each crew member has a proficiency level (1-10, default 5) in three disciplines and a
+preference (low, normal, high, urgent, default normal) for each:
+
+| Discipline | Jobs |
+| --- | --- |
+| Construction | `Construct`, `Deconstruct` |
+| Repair | `RepairBreach`, `RepairMachine`, breach-repair support |
+| Logistics | item fetching, delivery, ore refining, and other routine hauling |
+
+Rules:
+
+- Work speed for a job is `psychologyWorkRate * (0.75 + 0.05 * skillLevel)`, so the
+  default level 5 is exactly neutral (`x1.0`), level 1 is `x0.8`, and level 10 is
+  `x1.25`. Skills never bypass missing tools, materials, routes, or power.
+- Routine job selection scores each claimable job as `job.Priority + bias`, where the
+  bias is `(priorityLevel - Normal) * 4`. Emergencies (priority 100 and above) are
+  ordered ahead of all routine work and never receive a bias, so no preference can
+  delay a breach repair or evacuation.
+- Personal needs (drinking, eating, resting) and emergency preemption are evaluated
+  before routine job selection and are not affected by work preferences.
+- `SetCrewWorkPriorityCommand` is the only player-facing way to change a preference.
+  Skill levels are fixed per crew member and loaded from save data; there is no
+  training or progression yet.
+- Both values are validated on save/load; out-of-range or duplicate entries reject the
+  save, and saves older than format 8 load with default skills and normal priorities.
 
 ## Storage, hauling, and machine condition
 
@@ -244,15 +273,16 @@ Tools: 1 cable, 2 coolant, 3 fuel, 4 battery, 5 oxygen generator
 Toggle selected machine: O
 Cancel placement: Esc
 Undo utility: Ctrl+Z
+Crew work priorities: click a discipline button in the roster or crew inspector
 ```
 
 The toolbar shows hovered and selected tile coordinates. The game does not inject or automate desktop input.
 
 ## Save format
 
-`SimulationSerializer.CurrentSaveFormatVersion` is **7**.
+`SimulationSerializer.CurrentSaveFormatVersion` is **8**.
 
-- Version 0 (legacy, no explicit version), 1, 2, 3, 4, 5, and 6 remain readable.
+- Version 0 (legacy, no explicit version), 1, 2, 3, 4, 5, 6, and 7 remain readable.
 - Version 3 adds job `State`, `FailedAttempts`, `LastFailureReason`, `BlockedReason`,
   and `RetryNotBeforeSimTime`.
 - Version 4 adds job material/tool reservations (`ReservedMaterialIds`).
@@ -260,6 +290,7 @@ The toolbar shows hovered and selected tile coordinates. The game does not injec
   `ProductionCyclesCompleted`.
 - Version 6 adds `AutoProductionEnabled` and the machine `ProductionQueue`.
 - Version 7 adds machine `Condition`.
+- Version 8 adds per-crew `Skills` (discipline levels) and `WorkPriorities`.
 - Older saves migrate by deriving state from the legacy completion flags and
   resetting retry bookkeeping and material reservations; jobs in old saves therefore
   load as `Queued` unless they were completed or cancelled.
@@ -283,6 +314,8 @@ and fixed-tick remainder.
 - Room and utility invariants cover hull openings, door connectivity, and
   machine/pipe adjacency, but not full room reachability or production-network flow.
 - Tools are ordinary inventory items; there is no separate tool-reservation table.
+- Crew skill levels are fixed per crew member; there is no training, XP, or
+  specialization change during a run. Work preferences only reorder routine jobs.
 
 ## Running the checks
 

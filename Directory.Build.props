@@ -1,0 +1,12 @@
+<Project>
+
+  <PropertyGroup>
+    <Version>0.1.0</Version>
+    <Product>Voidworks</Product>
+    <Company>Voidworks</Company>
+    <Description>Voidworks - a 2D industrial spacecraft simulation about keeping a fragile ship and its autonomous crew alive.</Description>
+    <RepositoryUrl>https://github.com/LeTrollologist/Voidworks</RepositoryUrl>
+    <NeutralLanguage>en</NeutralLanguage>
+  </PropertyGroup>
+
+</Project>

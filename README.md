@@ -8,6 +8,8 @@ The goal is a simulation where machinery, resources, atmosphere, and people depe
 
 > **Project status:** Active development. Features and interfaces may change as the simulation evolves.
 
+**Current release:** `0.1.0` — the first tagged build of the `derelict-crisis` vertical slice. Run `dotnet run --project src/Voidworks.Game/Voidworks.Game.csproj -- --version` to print the build identity. Release notes live in [CHANGELOG.md](CHANGELOG.md).
+
 ## Features
 
 ### Ship systems and atmosphere
@@ -28,8 +30,7 @@ The goal is a simulation where machinery, resources, atmosphere, and people depe
 - Construction orders let crew build hull panels, floors, interior partition walls, bulkhead doors, and machinery from steel plates and machine components. Construction requires a welding torch; machines must be installed on an unused floor tile.
 - Deconstruction orders let crew dismantle machinery and strip walls, doors, floors, or hull panels with a welding torch to reclaim structural steel and machine components.
 - Construction orders reserve their required plates, components, and welding torch; cancelled or failed orders return carried consumables to the world and release tool reservations for other orders.
-- Management panel with crew roster, job cancellation/reassignment/priority controls, stockpile totals, and production status; overlay legends, three save slots, and alerts that jump to the affected tile or crew member.
-- Production controls pause or cap machine cycles without discarding finished output; machines support recipe queues with validated orders, explicit shortage/block reasons, and automatic fallback when the queue is empty.
+- Management panel with crew roster, job cancellation/reassignment/priority controls, stockpile totals, and production status; overlay legends, three save slots, and alerts that jump to the affected tile or crew member.- Production controls pause or cap machine cycles without discarding finished output; machines support recipe queues with validated orders, explicit shortage/block reasons, and automatic fallback when the queue is empty.
 - Storage caps and delivery priorities keep stockpiles bounded and feed life support/production before construction; machines wear with use, break down, and are repaired by crew with a welding torch.
 - Construction commands reject occupied, unsupported, or unreachable sites, and queued orders draw a placement footprint in the world.
 
@@ -77,8 +78,10 @@ The goal is a simulation where machinery, resources, atmosphere, and people depe
 - Emergency response routines for breach repair.
 - Food, water, and sleep routines for ongoing crew maintenance.
 - Persistent personality traits (courage, discipline, self-preservation, determination, and sociability) and changing psychological values (motivation, fear, stress, anger, and morale). They influence movement and work rates, personal-need priorities, hazard tolerance, and willingness to assist. Fatigue remains a separate physiological need, and psychological factors do not bypass physical or equipment constraints.
+- Per-crew proficiency in construction, repair, and logistics. Skill level scales work speed for the matching discipline (for example, a strong repair specialist welds breaches and repairs machinery faster), and the crew inspector and roster show each crew member's levels.
+- Adjustable work priorities per crew member and discipline (low, normal, high, urgent). Preferences bias which routine job a crew member claims first, while emergencies and personal survival needs always outrank them. Priorities are player commands recorded in the event history.
 - Crew assistance requests after repeated failures involving missing resources, blocked routes, or hazards beyond the requester’s tolerance. Eligible helpers can deliver required equipment, open a locked door, or take over the source task and retry it with their own route and equipment.
-- Assistance requests and crew psychology included in simulation save data, with current assistance status visible in the crew inspector.
+- Assistance requests, crew psychology, skills, and work priorities included in simulation save data, with current assistance status visible in the crew inspector.
 - Simulation saves use versioned JSON and validate world structure and references before loading. They preserve atmosphere and utility settings, machine production progress, crew retry, retreat and diagnostic state, active jobs and carried items, and scenario progress. File saves are written and flushed to a temporary file before replacing the existing save.
 
 ### Engineering viewport
@@ -187,6 +190,16 @@ Run the automated tests:
 dotnet test
 ```
 
+## Release build
+
+Publish a framework-dependent Windows x64 build (requires the .NET 10 desktop runtime):
+
+```powershell
+dotnet publish src/Voidworks.Game/Voidworks.Game.csproj -c Release -r win-x64 --self-contained false -o artifacts/win-x64
+```
+
+Run it with `dotnet artifacts/win-x64/Voidworks.Game.dll`, or add `-- --headless` for a console-only smoke run. `artifacts/` and save files are not tracked by git. The current release is `0.1.0`; see [CHANGELOG.md](CHANGELOG.md) for what changed.
+
 ## Current simulation loop
 
 The systems are designed to form connected resource and failure loops:
@@ -234,7 +247,7 @@ Focused headless scenario sweep:
 dotnet test --filter FullyQualifiedName~ScenarioSmokeTests
 ```
 
-Every shipped scenario starts from a shared fixture, runs for 30 simulated seconds, and a long-run variant advances until the scenario terminates with invariant checks enabled on every tick. Simulation update ordering, the job lifecycle and retry policy, development invariants, save format version 7, and known limitations are documented in [docs/simulation-contract.md](docs/simulation-contract.md).
+Every shipped scenario starts from a shared fixture, runs for 30 simulated seconds, and a long-run variant advances until the scenario terminates with invariant checks enabled on every tick. Simulation update ordering, the job lifecycle and retry policy, development invariants, save format version 8, and known limitations are documented in [docs/simulation-contract.md](docs/simulation-contract.md).
 
 The passing-test count describes the reported development milestone and is not a guarantee that every future commit will pass. Run the tests against the revision you have checked out.
 

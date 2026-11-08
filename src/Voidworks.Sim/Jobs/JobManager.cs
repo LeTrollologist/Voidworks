@@ -375,12 +375,20 @@ public sealed class JobManager
     public Job? ClaimHighestPriorityJob(
         Crew.CrewMember crew,
         Guid? excludedJobId = null,
-        ShipGrid? grid = null)
+        ShipGrid? grid = null,
+        Func<Job, int>? scoreAdjustment = null)
     {
+        // Emergency jobs (priority 100 and above) always outrank routine work and
+        // ignore crew preference, so a personal preference can never delay a breach
+        // repair or evacuation.
+        int Score(Job job) => job.Priority +
+            (job.IsEmergency ? 0 : scoreAdjustment?.Invoke(job) ?? 0);
+
         var job = _jobs
             .Where(j => (!excludedJobId.HasValue || j.Id != excludedJobId.Value) &&
                         CanCrewClaimJob(j, crew))
-            .OrderByDescending(j => j.Priority)
+            .OrderByDescending(j => j.IsEmergency)
+            .ThenByDescending(Score)
             .ThenBy(j => EstimateTravelDistance(j, crew, grid))
             .FirstOrDefault();
 

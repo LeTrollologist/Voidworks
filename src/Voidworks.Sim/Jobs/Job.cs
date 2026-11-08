@@ -10,6 +10,9 @@ namespace Voidworks.Sim.Jobs;
 
 public sealed class Job
 {
+    /// <summary>Priority at and above which a job is treated as an emergency.</summary>
+    public const int EmergencyPriority = 100;
+
     public Guid Id { get; private set; } = Guid.NewGuid();
     public string Name { get; set; }
     public JobType Type { get; }
@@ -17,6 +20,7 @@ public sealed class Job
     public Item? TargetItem { get; set; }
     public ItemType? DesiredItemType { get; set; }
     public int Priority { get; set; } // Higher number = higher priority
+    public bool IsEmergency => Priority >= EmergencyPriority;
     public Guid? AssignedCrewId { get; set; }
     public Guid? TargetCrewId { get; set; }
     public Guid? SourceTaskJobId { get; set; }
@@ -28,6 +32,18 @@ public sealed class Job
     public MachineType? ConstructMachineType { get; set; }
     public int RequiredSteelPlates { get; set; }
     public int RequiredMachineComponents { get; set; }
+
+    /// <summary>
+    /// Discipline that determines which crew proficiency and work preference apply
+    /// to this job. Construction and deconstruction are build work, breach and
+    /// machine repair are repair work, and everything else is logistics-hauling.
+    /// </summary>
+    public CrewSkill SkillCategory => Type switch
+    {
+        JobType.Construct or JobType.Deconstruct => CrewSkill.Construction,
+        JobType.RepairBreach or JobType.RepairMachine => CrewSkill.Repair,
+        _ => CrewSkill.Logistics
+    };
 
     /// <summary>Current lifecycle state. Defaults to <see cref="JobState.Queued"/>.</summary>
     public JobState State { get; private set; } = JobState.Queued;

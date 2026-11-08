@@ -9,12 +9,13 @@ namespace Voidworks.Engine;
 
 public sealed class CrewRosterView
 {
-    public void Render(
+    public string Render(
         SimulationState sim,
         ref CrewMember? selectedCrew,
         ref GridCoord? selectedTile,
         ref Machine? selectedMachine)
     {
+        string status = string.Empty;
         ImGui.TextColored(new float4(0.4f, 1.0f, 0.8f, 1.0f), $"CREW ({sim.Crew.Count})");
         if (sim.Crew.Count == 0)
             ImGui.TextDisabled("No crew aboard.");
@@ -40,6 +41,9 @@ public sealed class CrewRosterView
                 $"HP {crew.Physiology.Health:F0} O2 {crew.Physiology.OxygenSaturation:F0} " +
                 $"H {crew.Physiology.Hunger:F0} T {crew.Physiology.Thirst:F0} F {crew.Physiology.Fatigue:F0}");
 
+            CrewWorkView.RenderSkills(crew);
+            CrewWorkView.RenderPriorities(sim, crew, message => status = message, compact: true);
+
             string job = agent.CurrentJob != null
                 ? $"{agent.CurrentJob.State} {agent.CurrentJob.Type}"
                 : "idle";
@@ -50,5 +54,7 @@ public sealed class CrewRosterView
             else if (crew.Physiology.IsIncapacitated)
                 ImGui.TextColored(new float4(1.0f, 0.5f, 0.2f, 1.0f), "   INCAPACITATED");
         }
+
+        return status;
     }
 }

@@ -663,6 +663,10 @@ public sealed class InspectionPanel
                 ImGui.TextDisabled(
                     $"Determination {selectedCrew.Psychology.Determination:F0}  Sociability {selectedCrew.Psychology.Sociability:F0}");
 
+                ImGui.Spacing();
+                CrewWorkView.RenderSkills(selectedCrew);
+                CrewWorkView.RenderPriorities(sim, selectedCrew, message => SetCommandStatus(message));
+
                 if (ai?.LastDiagnostic is { } crewDiagnostic)
                 {
                     ImGui.TextColored(new float4(1.0f, 0.55f, 0.3f, 1.0f), $"Decision: {crewDiagnostic.Reason}");
