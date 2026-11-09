@@ -339,12 +339,35 @@ and fixed-tick remainder.
 - Crew skill levels are fixed per crew member; there is no training, XP, or
   specialization change during a run. Work preferences only reorder routine jobs.
 
+## Release diagnostics
+
+`--benchmark` advances the current scenario or loaded world headlessly and measures
+`SimulationState.Step` only; rendering is outside the measurement. `TickBenchmark`
+reports total wall time, mean, p50, p95, and max milliseconds per tick, managed
+allocations, and the wall time spent per simulated second. The default is 6000
+ticks; `--ticks` selects a different count. Benchmarking mutates the world like any
+other run, so save state afterwards if it matters.
+
+`CrashReporting` installs process-wide handlers for unhandled exceptions and
+unobserved task exceptions. A report is written to
+`%LOCALAPPDATA%\Voidworks\logs\crash-<timestamp>-<pid>.log` and contains the build
+identity, UTC time, OS and runtime, process id, command line, the full exception
+stack, and up to the 40 most recent simulation events. Writing a report is
+best-effort; a failure to write must not mask the original crash, so it is reported
+to stderr and otherwise ignored.
+
 ## Running the checks
 
 ```powershell
 dotnet build
 dotnet test
 dotnet test --filter FullyQualifiedName~ScenarioSmokeTests
+```
+
+A quick headless performance sample of the primary mission:
+
+```powershell
+dotnet run --project src/Voidworks.Game/Voidworks.Game.csproj -- --benchmark --ticks 6000
 ```
 
 `ScenarioSmokeTests` starts every shipped scenario from a common fixture, advances

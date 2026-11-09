@@ -8,7 +8,7 @@ The goal is a simulation where machinery, resources, atmosphere, and people depe
 
 > **Project status:** Active development. Features and interfaces may change as the simulation evolves.
 
-**Current release:** `0.2.0` — the `derelict-crisis` vertical slice with crew skills, work priorities, and plumbing flow visualization. Run `dotnet run --project src/Voidworks.Game/Voidworks.Game.csproj -- --version` to print the build identity. Release notes live in [CHANGELOG.md](CHANGELOG.md).
+**Current release:** `0.3.0` — the `derelict-crisis` vertical slice with crew skills, work priorities, plumbing flow visualization, and release diagnostics. Run `dotnet run --project src/Voidworks.Game/Voidworks.Game.csproj -- --version` to print the build identity. Release notes live in [CHANGELOG.md](CHANGELOG.md).
 
 ## Features
 
@@ -200,7 +200,21 @@ Publish a framework-dependent Windows x64 build (requires the .NET 10 desktop ru
 dotnet publish src/Voidworks.Game/Voidworks.Game.csproj -c Release -r win-x64 --self-contained false -o artifacts/win-x64
 ```
 
-Run it with `dotnet artifacts/win-x64/Voidworks.Game.dll`, or add `-- --headless` for a console-only smoke run. `artifacts/` and save files are not tracked by git. The current release is `0.2.0`; see [CHANGELOG.md](CHANGELOG.md) for what changed.
+Run it with `dotnet artifacts/win-x64/Voidworks.Game.dll`, or add `-- --headless` for a console-only smoke run. `artifacts/` and save files are not tracked by git. The current release is `0.3.0`; see [CHANGELOG.md](CHANGELOG.md) for what changed.
+
+## Diagnostics and troubleshooting
+
+- **Benchmark tick cost:** `--benchmark` advances the selected world headlessly and reports mean, p50, p95, and max milliseconds per tick, plus managed allocations and a simulated-time budget. It measures simulation only, not rendering.
+
+  ```powershell
+  dotnet run --project src/Voidworks.Game/Voidworks.Game.csproj -- --benchmark --ticks 6000
+  dotnet run --project src/Voidworks.Game/Voidworks.Game.csproj -- --benchmark --load ship.voidworks.json --ticks 6000
+  ```
+
+  Without `--ticks`, the benchmark runs 6000 ticks (ten simulated minutes).
+- **Save locations:** the three UI slots write to `%LOCALAPPDATA%\Voidworks\ship-save.json`, `ship-save-2.json`, and `ship-save-3.json`. `--load` and `--save` accept any path. Saves are written to a temporary file, flushed, and then renamed, so an interrupted write leaves the previous save intact.
+- **Crash reports:** an unhandled error writes `crash-<timestamp>-<pid>.log` to `%LOCALAPPDATA%\Voidworks\logs`. The report contains the build identity, OS and runtime, command line, full exception and stack, and the most recent simulation events. Attach it when reporting a crash.
+- **Build identity:** `--version` prints the version, which also appears in the window title and the telemetry bar.
 
 ## Current simulation loop
 

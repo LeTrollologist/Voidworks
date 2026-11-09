@@ -12,6 +12,7 @@ Simulation update ordering, job lifecycle and retry rules, invariant checks, sav
 
 ## Recent Progress
 
+- **2026-11-09:** Released **v0.3.0** with release diagnostics. Unhandled errors now write a crash report (build identity, OS/runtime, command line, full stack, last 40 simulation events) to `%LOCALAPPDATA%\Voidworks\logs`; `--benchmark` reports headless tick cost (mean/p50/p95/max, allocations, ms per simulated second); save and load failures show the failing path; the version appears in the telemetry bar. 216 tests pass.
 - **2026-11-09:** Released **v0.2.0** and finished Phase 5. The plumbing overlay now separates connected pipe sections by shade, draws flow-direction chevrons toward the radiator or engine, colors blocked sections red, marks sections missing an endpoint with a red cross, and lists each blocked section's reason plus live coolant and propellant flow in the legend. The analysis lives in headless `PlumbingNetworkMap` with deterministic section ids and no state mutation; 209 tests pass.
 - **2026-11-08:** Released **v0.1.0**. Finished Phase 3 crew management: crew members now carry construction, repair, and logistics proficiency that scales their work speed, and per-crew work priorities (low/normal/high/urgent) bias routine job selection without delaying emergencies. Both are player-visible in the roster and inspector, use the validated command layer, and persist in save format v8 with migration from older saves. Added build identity (`--version`, window title) and release documentation; 201 tests pass.
 - **2026-11-02:** Completed the fresh-start UI playthrough of `derelict-crisis`: mission complete at 185.5s, all four objectives, auxiliary battery built at the selected tile, radiator feed powered, and save/load preserved the completed state. A loading UI quirk was clarified as the intended terminal mission report. Added quick placement hotkeys (`1`-`5`), machine toggle (`O`), and hovered/selected tile readout.
@@ -166,7 +167,7 @@ The scripted path and confusion log live in [`docs/vertical-slice-playtest.md`](
 - [ ] Add chunking, culling, batching, or caching only if profiling warrants it.
 - [ ] Test clean Windows packaging on a machine without the development environment.
 - [ ] Verify save paths, permissions, error messages, and recovery from interrupted saves.
-- [ ] Add version/build information and useful crash logs.
+- [x] Add version/build information and useful crash logs.
 - [ ] Select and document a project license before accepting outside reuse or contributions.
 - [ ] Document controls, system mechanics, known issues, and minimum requirements.
 

@@ -394,7 +394,7 @@ public sealed class EngineApp
                 }
                 catch (Exception ex)
                 {
-                    _ui.SetPersistenceStatus($"Load failed: {ex.Message}");
+                    _ui.SetPersistenceStatus($"Load failed ({loadPath}): {ex.Message}");
                 }
                 finally
                 {

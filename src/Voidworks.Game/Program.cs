@@ -5,6 +5,7 @@ using Voidworks.Engine;
 using Voidworks.Sim;
 using Voidworks.Sim.Atmosphere;
 using Voidworks.Sim.Crew;
+using Voidworks.Sim.Diagnostics;
 using Voidworks.Sim.Items;
 using Voidworks.Sim.Jobs;
 using Voidworks.Sim.Machinery;
@@ -18,6 +19,7 @@ string? loadPath = null;
 string? savePath = null;
 int? requestedTicks = null;
 bool sandboxRequested = false;
+bool benchmarkRequested = false;
 for (int i = 0; i < args.Length; i++)
 {
     if (args[i].Equals("--scenario", StringComparison.OrdinalIgnoreCase))
@@ -50,6 +52,10 @@ for (int i = 0; i < args.Length; i++)
     {
         sandboxRequested = true;
     }
+    else if (args[i].Equals("--benchmark", StringComparison.OrdinalIgnoreCase))
+    {
+        benchmarkRequested = true;
+    }
 }
 
 if (loadPath != null && requestedScenarioId != null)
@@ -66,7 +72,15 @@ if (requestedScenarioId == null && loadPath == null && !sandboxRequested)
 
 bool forceConsole = args.Contains("--console", StringComparer.OrdinalIgnoreCase) ||
                     args.Contains("--headless", StringComparer.OrdinalIgnoreCase) ||
+                    benchmarkRequested ||
                     loadPath != null || savePath != null || requestedTicks.HasValue;
+
+// Fatal errors write a report with the recent simulation history attached.
+SimulationState? crashSimulation = null;
+CrashReporting.Install(() => crashSimulation?.Events.Recent
+    .TakeLast(40)
+    .Select(entry => $"[T+{entry.SimTime:F1}s] {entry.Kind}: {entry.Message}")
+    .ToArray() ?? Array.Empty<string>());
 
 Console.WriteLine("==================================================================");
 Console.WriteLine($"            VOIDWORKS {BuildInfo.Version} - THE LIVING HULL");
@@ -93,6 +107,7 @@ grid[19, 3].Type = TileType.Asteroid;
 var jobManager = new JobManager();
 var atmosphereSolver = new AtmosphereSolver();
 var sim = new SimulationState(grid, atmosphereSolver, jobManager);
+crashSimulation = sim;
 
 // 2. Storage Locker Supplies (Food, Water, EVA Suits, Tools, Materials)
 jobManager.AddItem(new Item(ItemType.EvaSuit, new GridCoord(2, 3)));
@@ -194,6 +209,7 @@ if (requestedScenarioId != null)
 if (loadPath != null)
 {
     sim = SimulationSerializer.LoadFromFile(loadPath);
+    crashSimulation = sim;
     grid = sim.Grid;
     jobManager = sim.JobManager;
     engineer = sim.Crew.Select(agent => agent.Crew)
@@ -207,6 +223,36 @@ Console.WriteLine(sim.ActiveScenario != null
     : "[Status] Ship power grid, plumbing conduits, life support, and industry online.");
 Console.WriteLine($"[Status] Crew Complement: {string.Join(", ", sim.Crew.Select(agent => $"{agent.Crew.Name} ({agent.Crew.Role})"))}.");
 Console.WriteLine("[Status] Exterior asteroid field detected off starboard bow (Iron & Ice ore).");
+
+if (benchmarkRequested)
+{
+    int benchmarkTicks = requestedTicks is > 0 ? requestedTicks.Value : 6000;
+    Console.WriteLine(
+        $"[Benchmark] Target {sim.ActiveScenario?.Id ?? "sandbox"}: {benchmarkTicks} fixed ticks " +
+        $"({benchmarkTicks * SimulationState.FixedTickDt:F0}s simulated).");
+    Console.WriteLine(
+        $"[Benchmark] World: {sim.Grid.Width}x{sim.Grid.Height} tiles, {sim.Crew.Count} crew, " +
+        $"{sim.Machines.Count} machines, {sim.JobManager.WorldItems.Count} loose items, " +
+        $"{sim.JobManager.ActiveJobs.Count} jobs.");
+
+    TickBenchmarkResult result = TickBenchmark.Measure(sim, benchmarkTicks);
+
+    Console.WriteLine(
+        $"[Benchmark] wall {result.TotalMilliseconds:F1} ms | mean {result.MeanMilliseconds:F3} ms | " +
+        $"p50 {result.P50Milliseconds:F3} ms | p95 {result.P95Milliseconds:F3} ms | " +
+        $"max {result.MaxMilliseconds:F3} ms per tick");
+    Console.WriteLine(
+        $"[Benchmark] {result.MillisecondsPerSimulatedSecond:F2} ms per simulated second; " +
+        $"allocations {result.AllocatedBytes / 1048576.0:F2} MB " +
+        $"({result.AllocatedKilobytesPerTick:F2} KB per tick)");
+
+    if (savePath != null)
+    {
+        SimulationSerializer.SaveToFile(sim, savePath);
+        Console.WriteLine($"[Save] Wrote simulation to {Path.GetFullPath(savePath)}.");
+    }
+    return;
+}
 
 if (!forceConsole)
 {

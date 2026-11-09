@@ -4,6 +4,40 @@ All notable changes to Voidworks are recorded here. Versions follow the build
 identity in `Directory.Build.props`; save files are versioned separately and
 documented in [`docs/simulation-contract.md`](docs/simulation-contract.md).
 
+## [0.3.0] - 2026-11-09
+
+Release-hardening pass: failures and performance are now diagnosable outside the
+debug panel.
+
+### Added
+
+- **Crash reports.** Unhandled exceptions and unobserved task exceptions write a
+  plain-text report to `%LOCALAPPDATA%\Voidworks\logs`, including build identity, OS
+  and runtime, process id, command line, the full exception stack, and the 40 most
+  recent simulation events. Report writing is best-effort and never masks the
+  original failure.
+- **`--benchmark`.** Headless tick profiler that runs the selected scenario or a
+  loaded save and reports wall time, mean/p50/p95/max milliseconds per tick, managed
+  allocations, and wall time per simulated second (default 6000 ticks).
+- **`TickBenchmark`** in `Voidworks.Sim.Diagnostics` with deterministic percentile
+  summarization, covered by tests.
+- Seven new tests for benchmark statistics and crash-report content and file
+  handling.
+
+### Changed
+
+- Save and load failures in the UI now include the exact slot path that failed.
+- The telemetry bar shows the build version.
+- README gained a diagnostics and troubleshooting section, and the simulation
+  contract documents benchmarking and crash-report behavior.
+
+### Notes
+
+- 216 automated tests pass against this revision.
+- Save format is unchanged at version 8.
+- Rendering and packaging still require manual validation; `--benchmark` measures
+  simulation only.
+
 ## [0.2.0] - 2026-11-09
 
 Completes the Phase 5 plumbing work: the engineering overlay now explains pipe

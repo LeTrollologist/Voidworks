@@ -98,6 +98,8 @@ public sealed class InspectionPanel
 
             ImGui.TextColored(new float4(0.2f, 0.8f, 1.0f, 1.0f), "VOIDWORKS");
             ImGui.SameLine();
+            ImGui.TextDisabled($"v{BuildInfo.Version}");
+            ImGui.SameLine();
             ImGui.TextDisabled($"|  {modeStr}  ·  {timeStr}  ·  {statusStr}");
 
             ImGui.Separator();
@@ -1175,7 +1177,8 @@ public sealed class InspectionPanel
             }
             catch (Exception ex)
             {
-                _persistenceStatus = $"Save failed (slot {_saveSlot}): {ex.Message}";
+                _persistenceStatus =
+                    $"Save failed (slot {_saveSlot}, {SavePathForSlot(_saveSlot)}): {ex.Message}";
             }
         }
 
