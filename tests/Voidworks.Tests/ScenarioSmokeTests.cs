@@ -27,7 +27,8 @@ public class ScenarioSmokeTests
         new object[] { "crew-assistance" },
         new object[] { "crew-hazard-response" },
         new object[] { "industrial-progression" },
-        new object[] { "cascade-crisis" }
+        new object[] { "cascade-crisis" },
+        new object[] { "cannibalize" }
     };
 
     internal static SimulationState CreateScenarioSim()

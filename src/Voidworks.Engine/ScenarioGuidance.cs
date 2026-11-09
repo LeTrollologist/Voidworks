@@ -40,6 +40,22 @@ public static class ScenarioGuidance
                       "Select the intervening tiles and lay Coolant Pipe.");
         }
 
+        if (scenario.Id == "cannibalize" &&
+            scenario.Objectives.Any(objective => objective.Id == "rebuild-life-support" && !objective.IsCompleted) &&
+            !sim.Machines.Any(machine => machine.Type == MachineType.OxygenGenerator))
+        {
+            int plates = sim.JobManager.WorldItems.Count(item => item.Type == ItemType.SteelPlate) +
+                         sim.Crew.Sum(agent => agent.Crew.Inventory.Count(item => item.Type == ItemType.SteelPlate));
+            bool hasComponent = sim.JobManager.WorldItems.Any(item => item.Type == ItemType.MachineComponent) ||
+                                sim.Crew.Any(agent => agent.Crew.Inventory.Any(item => item.Type == ItemType.MachineComponent));
+            if (plates < 6)
+                hints.Add($"Oxygen generation is gone. Strip interior bulkheads or dismantle machinery for steel ({plates}/6 plates).");
+            if (!hasComponent)
+                hints.Add("A machine component is required for new life support: dismantle a machine with the welding torch.");
+            if (plates >= 6 && hasComponent)
+                hints.Add("Materials ready. Build an Oxygen Generator on a tile beside a live power cable, then switch it on.");
+        }
+
         if (radiator != null && !radiator.IsPowered && radiator.IsOnline)
         {
             hints.Add($"Radiator at {radiator.Position} is unpowered. Lay a power cable to the hull tile beside it so the coolant pump can run.");

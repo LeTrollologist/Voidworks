@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Voidworks.Sim.Atmosphere;
 using Voidworks.Sim.Crew;
@@ -664,6 +665,155 @@ public static class ScenarioCatalog
         return scenario;
     }
 
+    public static Scenario CreateCannibalize()
+    {
+        var scenario = new Scenario(
+            "cannibalize",
+            "Cannibalize",
+            "Life support is dead and there are no spare parts aboard. Strip interior bulkheads for steel, dismantle a working machine for its component, and rebuild oxygen generation before the crew suffocates.",
+            timeLimitSeconds: 300.0);
+
+        scenario.SetupAction = sim =>
+        {
+            // No working life support and no spare construction material: the ship
+            // itself is the only scrapyard left.
+            sim.Machines.RemoveAll(machine =>
+                machine.Type is MachineType.OxygenGenerator or MachineType.CarbonScrubber);
+
+            foreach (var agent in sim.Crew)
+            {
+                foreach (var item in agent.Crew.Inventory
+                             .Where(item => item.Type is ItemType.SteelPlate or ItemType.MachineComponent)
+                             .ToList())
+                {
+                    agent.Crew.Inventory.Remove(item);
+                }
+            }
+            foreach (var item in sim.JobManager.WorldItems
+                         .Where(item => item.Type is ItemType.SteelPlate or ItemType.MachineComponent)
+                         .ToList())
+            {
+                sim.JobManager.RemoveItem(item);
+            }
+
+            bool hasTorch = sim.Crew.Any(agent => agent.Crew.HasItem(ItemType.WeldingTorch)) ||
+                            sim.JobManager.WorldItems.Any(item => item.Type == ItemType.WeldingTorch);
+            if (!hasTorch && sim.Crew.Count > 0)
+            {
+                var holder = sim.Crew[0].Crew;
+                sim.JobManager.AddItem(new Item(ItemType.WeldingTorch, holder.Position));
+            }
+
+            // Scatter interior partitions to strip. Sites avoid machines, loose items,
+            // crew, bunks, doors, and existing utilities so the layout stays valid.
+            var occupied = new HashSet<GridCoord>();
+            foreach (var machine in sim.Machines)
+                occupied.Add(machine.Position);
+            foreach (var item in sim.JobManager.WorldItems)
+                occupied.Add(item.Position);
+            foreach (var agent in sim.Crew)
+            {
+                occupied.Add(agent.Crew.Position);
+                if (agent.Crew.AssignedBunkCoord.HasValue)
+                    occupied.Add(agent.Crew.AssignedBunkCoord.Value);
+            }
+            foreach (var cable in sim.Cables)
+                occupied.Add(cable);
+            foreach (var pipe in sim.PlumbingSolver.CoolantPipes)
+                occupied.Add(pipe);
+            foreach (var pipe in sim.PlumbingSolver.PropellantPipes)
+                occupied.Add(pipe);
+
+            var chosen = new List<GridCoord>();
+            for (int y = 1; y < sim.Grid.Height - 1 && chosen.Count < 6; y++)
+            {
+                for (int x = 1; x < sim.Grid.Width - 1 && chosen.Count < 6; x++)
+                {
+                    var coord = new GridCoord(x, y);
+                    if (sim.Grid[coord].Type != TileType.Floor || occupied.Contains(coord))
+                        continue;
+                    if (coord.Cardinals().Any(neighbor =>
+                            sim.Grid.IsInBounds(neighbor) &&
+                            (sim.Grid[neighbor].Type == TileType.Door || chosen.Contains(neighbor))))
+                        continue;
+                    if (chosen.Any(existing => existing.Cardinals().Contains(coord)))
+                        continue;
+
+                    chosen.Add(coord);
+                    occupied.Add(coord);
+                }
+            }
+            foreach (var coord in chosen)
+                sim.Grid[coord].Type = TileType.InteriorWall;
+        };
+
+        scenario.Objectives.Add(new ScenarioObjective(
+            "salvage-steel",
+            "Salvage 6 Steel Plates",
+            "Strip interior bulkheads or dismantle machinery with a welding torch to recover steel plates.",
+            sim => CountSteelPlates(sim) >= 6,
+            sim => $"{CountSteelPlates(sim)} / 6 plates recovered."));
+
+        scenario.Objectives.Add(new ScenarioObjective(
+            "salvage-component",
+            "Recover a Machine Component",
+            "Dismantle a machine to reclaim the component needed to install new life support.",
+            sim => HasMachineComponent(sim),
+            sim => HasMachineComponent(sim)
+                ? "Machine component recovered."
+                : "No machine component in stock. Dismantle a machine to reclaim one."));
+
+        scenario.Objectives.Add(new ScenarioObjective(
+            "rebuild-life-support",
+            "Rebuild Oxygen Generation",
+            "Install a new oxygen generator on a powered floor tile, switch it on, and restore breathable air.",
+            sim => sim.Machines.Any(machine =>
+                machine.Type == MachineType.OxygenGenerator && machine.IsOnline && machine.IsPowered),
+            sim =>
+            {
+                var oxygen = sim.Machines.FirstOrDefault(machine => machine.Type == MachineType.OxygenGenerator);
+                if (oxygen == null)
+                    return "No oxygen generator is installed.";
+                if (!oxygen.IsOnline)
+                    return $"Oxygen generator at {oxygen.Position} is switched off.";
+                return oxygen.IsPowered
+                    ? "Oxygen generator online and powered."
+                    : $"Oxygen generator at {oxygen.Position} is online but unpowered.";
+            }));
+
+        scenario.Objectives.Add(new ScenarioObjective(
+            "endurance",
+            "Keep the Crew Alive for 120 Seconds",
+            "Rescue takes two minutes; every crew member must still be alive when it arrives.",
+            sim => (sim.ActiveScenario?.ElapsedSeconds ?? 0.0) >= 120.0 &&
+                   sim.Crew.Count > 0 &&
+                   sim.Crew.All(agent => agent.Crew.Physiology.IsAlive),
+            sim =>
+            {
+                double elapsed = sim.ActiveScenario?.ElapsedSeconds ?? 0.0;
+                int alive = sim.Crew.Count(agent => agent.Crew.Physiology.IsAlive);
+                return $"{Math.Min(elapsed, 120.0):F0} / 120s · crew {alive}/{sim.Crew.Count} alive.";
+            }));
+
+        scenario.FailureEvaluator = sim =>
+        {
+            var living = sim.Crew.Where(agent => agent.Crew.Physiology.IsAlive).ToList();
+            if (living.Count > 0 && living.All(agent => agent.Crew.Physiology.OxygenSaturation < 10.0))
+                return "The crew suffocated before oxygen generation was restored.";
+            return null;
+        };
+
+        return scenario;
+    }
+
+    private static int CountSteelPlates(SimulationState sim)
+        => sim.JobManager.WorldItems.Count(item => item.Type == ItemType.SteelPlate) +
+           sim.Crew.Sum(agent => agent.Crew.Inventory.Count(item => item.Type == ItemType.SteelPlate));
+
+    private static bool HasMachineComponent(SimulationState sim)
+        => sim.JobManager.WorldItems.Any(item => item.Type == ItemType.MachineComponent) ||
+           sim.Crew.Any(agent => agent.Crew.Inventory.Any(item => item.Type == ItemType.MachineComponent));
+
     public static Scenario? CreateById(string id) => id.ToLowerInvariant() switch
     {
         "derelict-crisis" => CreateTheDerelictCrisis(),
@@ -673,6 +823,7 @@ public static class ScenarioCatalog
         "crew-hazard-response" => CreateCrewHazardResponse(),
         "industrial-progression" => CreateIndustrialProgression(),
         "cascade-crisis" => CreateCascadeCrisis(),
+        "cannibalize" => CreateCannibalize(),
         _ => null
     };
 }

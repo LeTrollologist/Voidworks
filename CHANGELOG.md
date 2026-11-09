@@ -4,6 +4,36 @@ All notable changes to Voidworks are recorded here. Versions follow the build
 identity in `Directory.Build.props`; save files are versioned separately and
 documented in [`docs/simulation-contract.md`](docs/simulation-contract.md).
 
+## [0.4.0] - 2026-11-09
+
+A new scenario that changes the shape of the problem rather than the size of the map.
+
+### Added
+
+- **`cannibalize` scenario.** Life support is dead, the reactor is alive, and there
+  are no spare steel plates or machine components aboard. Six interior bulkheads are
+  the only steel source; the component has to come from dismantling a working machine
+  (hydroponics is the tempting donor). Objectives: recover 6 steel plates, recover a
+  machine component, rebuild and power an oxygen generator, and keep every crew member
+  alive for 120 seconds. Time limit: 300 seconds.
+- **Salvage guidance** in the briefing hints: it reports current plate count, warns
+  when no component is in stock, and points at the build step once materials exist.
+- Nine tests covering setup invariants, each objective's status and completion rules,
+  scenario completion, bulkhead deconstruction yielding steel, a full command-layer
+  playthrough that completes the mission, and salvage guidance.
+
+### Changed
+
+- The scenario catalog, README, and CLI error text list the new scenario id.
+
+### Notes
+
+- 227 automated tests pass against this revision.
+- Save format is unchanged at version 8.
+- The command-layer playthrough issues salvage orders sequentially. Queuing several
+  deconstruction orders at once can make the crew spend time on tool contention and
+  assistance requests, so the intended play is one salvage order at a time.
+
 ## [0.3.0] - 2026-11-09
 
 Release-hardening pass: failures and performance are now diagnosable outside the

@@ -12,6 +12,7 @@ Simulation update ordering, job lifecycle and retry rules, invariant checks, sav
 
 ## Recent Progress
 
+- **2026-11-09:** Released **v0.4.0** with a new `cannibalize` scenario and started Phase 7. The mission removes oxygen generation and all spare plates/components; the only steel is in six interior bulkheads and the only component comes from dismantling working machinery. Objectives cover salvaging 6 plates, recovering a component, rebuilding and powering an oxygen generator, and keeping the crew alive for 120 seconds, with salvage-specific guidance hints. A command-layer playthrough test proves the mission is winnable; 227 tests pass.
 - **2026-11-09:** Released **v0.3.0** with release diagnostics. Unhandled errors now write a crash report (build identity, OS/runtime, command line, full stack, last 40 simulation events) to `%LOCALAPPDATA%\Voidworks\logs`; `--benchmark` reports headless tick cost (mean/p50/p95/max, allocations, ms per simulated second); save and load failures show the failing path; the version appears in the telemetry bar. 216 tests pass.
 - **2026-11-09:** Released **v0.2.0** and finished Phase 5. The plumbing overlay now separates connected pipe sections by shade, draws flow-direction chevrons toward the radiator or engine, colors blocked sections red, marks sections missing an endpoint with a red cross, and lists each blocked section's reason plus live coolant and propellant flow in the legend. The analysis lives in headless `PlumbingNetworkMap` with deterministic section ids and no state mutation; 209 tests pass.
 - **2026-11-08:** Released **v0.1.0**. Finished Phase 3 crew management: crew members now carry construction, repair, and logistics proficiency that scales their work speed, and per-crew work priorities (low/normal/high/urgent) bias routine job selection without delaying emergencies. Both are player-visible in the roster and inspector, use the validated command layer, and persist in save format v8 with migration from older saves. Added build identity (`--version`, window title) and release documentation; 201 tests pass.
@@ -149,7 +150,7 @@ The scripted path and confusion log live in [`docs/vertical-slice-playtest.md`](
 
 ## Phase 7: Content, Progression, and Replayability
 
-- [ ] Add distinct scenario objectives and starting conditions, not just larger maps.
+- [x] Add distinct scenario objectives and starting conditions, not just larger maps.
 - [ ] Add a small, balanced set of ship modules, machines, and production recipes.
 - [ ] Add resource scarcity and meaningful trade-offs between survival, repair, and expansion.
 - [ ] Add progression across shifts, contracts, or a campaign if the vertical slice supports it.

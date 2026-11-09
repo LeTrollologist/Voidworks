@@ -8,9 +8,15 @@ The goal is a simulation where machinery, resources, atmosphere, and people depe
 
 > **Project status:** Active development. Features and interfaces may change as the simulation evolves.
 
-**Current release:** `0.3.0` — the `derelict-crisis` vertical slice with crew skills, work priorities, plumbing flow visualization, and release diagnostics. Run `dotnet run --project src/Voidworks.Game/Voidworks.Game.csproj -- --version` to print the build identity. Release notes live in [CHANGELOG.md](CHANGELOG.md).
+**Current release:** `0.4.0` — the `derelict-crisis` vertical slice plus the new `cannibalize` salvage scenario, crew skills, work priorities, plumbing flow visualization, and release diagnostics. Run `dotnet run --project src/Voidworks.Game/Voidworks.Game.csproj -- --version` to print the build identity. Release notes live in [CHANGELOG.md](CHANGELOG.md).
 
 ## Features
+
+### Missions and scenarios
+
+- Eight built-in scenarios with distinct starting conditions and objectives: the `derelict-crisis` vertical slice, `asteroid-expedition`, `hull-breach`, `crew-assistance`, `crew-hazard-response`, `industrial-progression`, `cascade-crisis`, and `cannibalize`.
+- `cannibalize` opens with no oxygen generation and no spare steel or machine components. The player must strip interior bulkheads for plates, dismantle a working machine for its component, rebuild life support, and keep the crew alive for two minutes.
+- Every scenario carries a briefing, live objective status, contextual next-step hints, and a terminal report.
 
 ### Ship systems and atmosphere
 
@@ -170,7 +176,13 @@ Run the crew hazard response scenario without opening a window:
 dotnet run --project src/Voidworks.Game/Voidworks.Game.csproj -- --headless --scenario crew-hazard-response
 ```
 
-The available scenario ids are `derelict-crisis`, `asteroid-expedition`, `hull-breach`, `crew-assistance`, `crew-hazard-response`, `industrial-progression`, and `cascade-crisis`. A headless run without `--scenario` or `--load` also starts the primary mission; add `--sandbox` for the free-play diagnostic run. A headless scenario without a tick limit runs until it completes, fails, or reaches its time limit. Each command above accepts the same argument form; `dotnet run` requires the `--` separator before application arguments.
+The available scenario ids are `derelict-crisis`, `asteroid-expedition`, `hull-breach`, `crew-assistance`, `crew-hazard-response`, `industrial-progression`, `cascade-crisis`, and `cannibalize`. A headless run without `--scenario` or `--load` also starts the primary mission; add `--sandbox` for the free-play diagnostic run. A headless scenario without a tick limit runs until it completes, fails, or reaches its time limit. Each command above accepts the same argument form; `dotnet run` requires the `--` separator before application arguments.
+
+`cannibalize` is the salvage scenario: life support is gone and the ship has no spare parts, so steel plates must come from stripping interior bulkheads and a machine component from dismantling working machinery. Run it with:
+
+```powershell
+dotnet run --project src/Voidworks.Game/Voidworks.Game.csproj -- --scenario cannibalize
+```
 
 Advance a scenario by an exact number of 0.1-second simulation ticks and save it:
 
@@ -200,7 +212,7 @@ Publish a framework-dependent Windows x64 build (requires the .NET 10 desktop ru
 dotnet publish src/Voidworks.Game/Voidworks.Game.csproj -c Release -r win-x64 --self-contained false -o artifacts/win-x64
 ```
 
-Run it with `dotnet artifacts/win-x64/Voidworks.Game.dll`, or add `-- --headless` for a console-only smoke run. `artifacts/` and save files are not tracked by git. The current release is `0.3.0`; see [CHANGELOG.md](CHANGELOG.md) for what changed.
+Run it with `dotnet artifacts/win-x64/Voidworks.Game.dll`, or add `-- --headless` for a console-only smoke run. `artifacts/` and save files are not tracked by git. The current release is `0.4.0`; see [CHANGELOG.md](CHANGELOG.md) for what changed.
 
 ## Diagnostics and troubleshooting
 

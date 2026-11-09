@@ -200,7 +200,7 @@ sim.Crew.Add(new CrewAI(pilot));
 if (requestedScenarioId != null)
 {
     var scenario = ScenarioCatalog.CreateById(requestedScenarioId)
-        ?? throw new ArgumentException($"Unknown scenario '{requestedScenarioId}'. Choose derelict-crisis, asteroid-expedition, hull-breach, crew-assistance, crew-hazard-response, industrial-progression, or cascade-crisis.");
+        ?? throw new ArgumentException($"Unknown scenario '{requestedScenarioId}'. Choose derelict-crisis, asteroid-expedition, hull-breach, crew-assistance, crew-hazard-response, industrial-progression, cascade-crisis, or cannibalize.");
     scenario.Setup(sim);
     sim.ActiveScenario = scenario;
     Console.WriteLine($"[Scenario] {scenario.Title}: {scenario.Description}");
