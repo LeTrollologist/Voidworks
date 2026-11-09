@@ -4,6 +4,27 @@ All notable changes to Voidworks are recorded here. Versions follow the build
 identity in `Directory.Build.props`; save files are versioned separately and
 documented in [`docs/simulation-contract.md`](docs/simulation-contract.md).
 
+## [0.4.1] - 2026-11-09
+
+Patch release for tool contention during salvage and repair.
+
+### Fixed
+
+- A welding torch that exists but is currently reserved or carried by another crew
+  member is no longer treated as a missing resource. The waiting crew blocks and
+  defers that order for three seconds without consuming a retry attempt or raising an
+  assistance request, so queuing several deconstruction or repair orders no longer
+  traps the crew in mutual "tool unavailable" failure loops.
+- Regression test: all six `cannibalize` bulkhead orders can be queued at once and
+  strip within 150 simulated seconds with one torch, without spawning assistance jobs.
+
+### Notes
+
+- 228 automated tests pass against this revision.
+- Save format is unchanged at version 8.
+- The 0.4.0 note about queuing salvage orders one at a time is resolved by this fix;
+  the command-layer playthrough still runs sequentially and is unchanged.
+
 ## [0.4.0] - 2026-11-09
 
 A new scenario that changes the shape of the problem rather than the size of the map.

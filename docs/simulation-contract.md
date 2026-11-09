@@ -83,6 +83,11 @@ Rules:
 - A failed job can be revived by a teammate's assistance
   (`AssignSourceTaskToHelper`) or by a cleared blocker (`ResetJobForRetry`); both
   reset the attempt counter.
+- A shared tool that exists but is reserved or carried by another crew member is
+  temporary contention, not a missing resource: the waiting crew blocks the order and
+  defers it for three seconds without consuming an attempt or raising an assistance
+  request. This keeps queued deconstruction and repair orders from deadlocking on a
+  single welding torch.
 
 ## Player command layer
 

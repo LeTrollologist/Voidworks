@@ -46,6 +46,15 @@ public sealed class JobManager
 
     public void AddItem(Item item) => _worldItems.Add(item);
 
+    /// <summary>
+    /// True when an item of this type exists in the world or in any crew inventory,
+    /// whether or not it is currently reserved. Planning uses this to distinguish a
+    /// missing tool from a tool that is merely busy with another order.
+    /// </summary>
+    public bool IsItemPresentAnywhere(ItemType type)
+        => _worldItems.Any(item => item.Type == type) ||
+           (_world?.Crew.Any(agent => agent.Crew.Inventory.Any(item => item.Type == type)) ?? false);
+
     public int CountLooseItemsAt(GridCoord coord)
         => _worldItems.Count(item => item.Position == coord && !item.IsCarried);
 

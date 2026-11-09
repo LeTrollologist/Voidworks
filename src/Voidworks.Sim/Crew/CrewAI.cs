@@ -540,6 +540,9 @@ public sealed class CrewAI
             : jobManager.FindAvailableItem(ItemType.WeldingTorch, Crew.Position, Crew.Id);
         if (!Crew.HasItem(ItemType.WeldingTorch) && torch == null)
         {
+            if (DeferForBusyTorch(constructionJob, jobManager, "Welding torch is in use; waiting for it"))
+                return false;
+
             missingTypes.Add(ItemType.WeldingTorch);
             missingResources.Add("welding torch");
         }
@@ -558,8 +561,7 @@ public sealed class CrewAI
             return false;
         }
 
-        var reservedItems = new List<Item>();
-        foreach (var item in itemsToFetch)
+        var reservedItems = new List<Item>();        foreach (var item in itemsToFetch)
         {
             if (jobManager.TryReserveMaterial(constructionJob, item, Crew.Id))
             {
@@ -640,6 +642,9 @@ public sealed class CrewAI
         Item? torch = jobManager.FindAvailableItem(ItemType.WeldingTorch, Crew.Position, Crew.Id);
         if (torch == null)
         {
+            if (DeferForBusyTorch(deconstructJob, jobManager, "Welding torch is in use; waiting for it"))
+                return false;
+
             RecordTaskFailure(new CrewDecisionDiagnostic(
                 CrewDiagnosticReason.ResourceUnavailable,
                 deconstructJob.TargetCoord,
@@ -654,6 +659,9 @@ public sealed class CrewAI
 
         if (!jobManager.TryReserveMaterial(deconstructJob, torch, Crew.Id))
         {
+            if (DeferForBusyTorch(deconstructJob, jobManager, "Welding torch is reserved; waiting for it"))
+                return false;
+
             RecordTaskFailure(new CrewDecisionDiagnostic(
                 CrewDiagnosticReason.ResourceUnavailable,
                 deconstructJob.TargetCoord,
@@ -683,6 +691,9 @@ public sealed class CrewAI
         Item? torch = jobManager.FindAvailableItem(ItemType.WeldingTorch, Crew.Position, Crew.Id);
         if (torch == null)
         {
+            if (DeferForBusyTorch(repairJob, jobManager, "Welding torch is in use; waiting for it"))
+                return false;
+
             RecordTaskFailure(new CrewDecisionDiagnostic(
                 CrewDiagnosticReason.ResourceUnavailable,
                 repairJob.TargetCoord,
@@ -697,6 +708,9 @@ public sealed class CrewAI
 
         if (!jobManager.TryReserveMaterial(repairJob, torch, Crew.Id))
         {
+            if (DeferForBusyTorch(repairJob, jobManager, "Welding torch is reserved; waiting for it"))
+                return false;
+
             RecordTaskFailure(new CrewDecisionDiagnostic(
                 CrewDiagnosticReason.ResourceUnavailable,
                 repairJob.TargetCoord,
@@ -1770,6 +1784,23 @@ public sealed class CrewAI
     {
         var diagnostic = result.Diagnostic with { Target = target };
         RecordTaskFailure(diagnostic, CurrentJob, jobManager);
+    }
+
+    /// <summary>
+    /// A required torch exists but another crew member or job currently holds it.
+    /// That is temporary contention, not a missing resource: defer this job briefly
+    /// and let the holder finish instead of counting a failure and escalating to an
+    /// assistance request nobody can satisfy.
+    /// </summary>
+    private bool DeferForBusyTorch(Job job, JobManager jobManager, string activity)
+    {
+        if (!jobManager.IsItemPresentAnywhere(ItemType.WeldingTorch))
+            return false;
+
+        _deferredJobId = job.Id;
+        _deferredJobTimer = 3.0;
+        CurrentActivity = activity;
+        return true;
     }
 
     private void RecordTaskFailure(

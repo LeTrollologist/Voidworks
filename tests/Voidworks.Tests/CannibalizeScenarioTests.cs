@@ -214,6 +214,30 @@ public class CannibalizeScenarioTests
     }
 
     [Fact]
+    public void QueuedBulkheadOrders_ShareOneTorchAndAllComplete()
+    {
+        (SimulationState sim, _) = Create();
+        var bulkheads = sim.Grid.AllTiles()
+            .Where(tile => tile.Type == TileType.InteriorWall)
+            .Select(tile => tile.Coord)
+            .ToList();
+        foreach (GridCoord bulkhead in bulkheads)
+            Assert.True(sim.ExecuteCommand(new DeconstructTileCommand(bulkhead, 1.0)).Success);
+
+        for (int tick = 0; tick < 1500; tick++)
+        {
+            sim.Step(SimulationState.FixedTickDt);
+            if (sim.Grid.AllTiles().All(tile => tile.Type != TileType.InteriorWall))
+                break;
+        }
+
+        Assert.Empty(bulkheads.Where(bulkhead => sim.Grid[bulkhead].Type == TileType.InteriorWall));
+        Assert.True(SteelPlateCount(sim) >= bulkheads.Count,
+            $"expected {bulkheads.Count} reclaimed plates, found {SteelPlateCount(sim)}");
+        Assert.DoesNotContain(sim.JobManager.ActiveJobs, job => job.Type == JobType.AssistCrew);
+    }
+
+    [Fact]
     public void Guidance_PointsAtSalvageAndLifeSupportRebuild()
     {
         (SimulationState sim, _) = Create();
