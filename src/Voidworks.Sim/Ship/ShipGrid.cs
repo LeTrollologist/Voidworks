@@ -56,7 +56,7 @@ public sealed class ShipGrid
 
     public IEnumerable<ShipTile> GetCardinalNeighbors(GridCoord coord)
     {
-        foreach (var c in coord.Cardinals())
+        foreach (GridCoord c in coord.GetCardinals())
         {
             if (IsInBounds(c))
                 yield return _tiles[c.X, c.Y];

@@ -41,7 +41,23 @@ public sealed class SimulationState : IJobWorldContext
     public SimulationEventLog Events => JobManager.Events;
 
     private readonly Dictionary<Guid, CrewVitalSnapshot> _crewVitals = new();
-    private readonly HashSet<string> _activeLifeSupportWarnings = new();
+    private readonly HashSet<LifeSupportWarningKey> _activeLifeSupportWarnings = new();
+    private readonly HashSet<LifeSupportWarningKey> _currentLifeSupportWarnings = new();
+    private readonly List<LifeSupportWarningKey> _staleLifeSupportWarnings = new();
+
+    private enum LifeSupportWarningKind : byte
+    {
+        Oxygen,
+        Hunger,
+        Thirst,
+        CarbonDioxide
+    }
+
+    private readonly record struct LifeSupportWarningKey(
+        Guid CrewId,
+        LifeSupportWarningKind Kind,
+        int X,
+        int Y);
 
     private readonly record struct CrewVitalSnapshot(bool IsAlive, bool IsIncapacitated);
 
@@ -167,7 +183,7 @@ public sealed class SimulationState : IJobWorldContext
 
     private void UpdateLifeSupportWarnings()
     {
-        var current = new HashSet<string>();
+        _currentLifeSupportWarnings.Clear();
 
         foreach (var agent in Crew)
         {
@@ -175,35 +191,66 @@ public sealed class SimulationState : IJobWorldContext
             if (!crew.Physiology.IsAlive)
                 continue;
 
-            Check($"o2:{crew.Id}", crew.Physiology.OxygenSaturation < 60.0,
-                $"{crew.Name} oxygen saturation is {crew.Physiology.OxygenSaturation:F0}%.", crew.Id);
-            Check($"food:{crew.Id}", crew.Physiology.Hunger > 80.0,
-                $"{crew.Name} is starving (hunger {crew.Physiology.Hunger:F0}%).", crew.Id);
-            Check($"water:{crew.Id}", crew.Physiology.Thirst > 80.0,
-                $"{crew.Name} is severely dehydrated (thirst {crew.Physiology.Thirst:F0}%).", crew.Id);
+            if (crew.Physiology.OxygenSaturation < 60.0)
+            {
+                var key = new LifeSupportWarningKey(crew.Id, LifeSupportWarningKind.Oxygen, 0, 0);
+                _currentLifeSupportWarnings.Add(key);
+                if (_activeLifeSupportWarnings.Add(key))
+                {
+                    Events.Add(SimTime, SimulationEventKind.LifeSupportWarning,
+                        $"{crew.Name} oxygen saturation is {crew.Physiology.OxygenSaturation:F0}%.", crewId: crew.Id);
+                }
+            }
+
+            if (crew.Physiology.Hunger > 80.0)
+            {
+                var key = new LifeSupportWarningKey(crew.Id, LifeSupportWarningKind.Hunger, 0, 0);
+                _currentLifeSupportWarnings.Add(key);
+                if (_activeLifeSupportWarnings.Add(key))
+                {
+                    Events.Add(SimTime, SimulationEventKind.LifeSupportWarning,
+                        $"{crew.Name} is starving (hunger {crew.Physiology.Hunger:F0}%).", crewId: crew.Id);
+                }
+            }
+
+            if (crew.Physiology.Thirst > 80.0)
+            {
+                var key = new LifeSupportWarningKey(crew.Id, LifeSupportWarningKind.Thirst, 0, 0);
+                _currentLifeSupportWarnings.Add(key);
+                if (_activeLifeSupportWarnings.Add(key))
+                {
+                    Events.Add(SimTime, SimulationEventKind.LifeSupportWarning,
+                        $"{crew.Name} is severely dehydrated (thirst {crew.Physiology.Thirst:F0}%).", crewId: crew.Id);
+                }
+            }
 
             if (Grid.IsInBounds(crew.Position))
             {
                 var tile = Grid[crew.Position];
-                Check($"co2:{crew.Position.X},{crew.Position.Y}", tile.Atmosphere.CarbonDioxide > 1.0,
-                    $"CO2 is elevated at {crew.Position} ({tile.Atmosphere.CarbonDioxide:F2} mol).", crew.Id);
+                if (tile.Atmosphere.CarbonDioxide > 1.0)
+                {
+                    var key = new LifeSupportWarningKey(
+                        crew.Id, LifeSupportWarningKind.CarbonDioxide, crew.Position.X, crew.Position.Y);
+                    _currentLifeSupportWarnings.Add(key);
+                    if (_activeLifeSupportWarnings.Add(key))
+                    {
+                        Events.Add(SimTime, SimulationEventKind.LifeSupportWarning,
+                            $"CO2 is elevated at {crew.Position} ({tile.Atmosphere.CarbonDioxide:F2} mol).",
+                            crewId: crew.Id);
+                    }
+                }
             }
         }
 
-        foreach (var warning in _activeLifeSupportWarnings.Where(key => !current.Contains(key)).ToList())
-            _activeLifeSupportWarnings.Remove(warning);
-
-        void Check(string key, bool active, string message, Guid crewId)
+        // Active warnings not seen this tick are cleared so a recurrence can alert again.
+        _staleLifeSupportWarnings.Clear();
+        foreach (var key in _activeLifeSupportWarnings)
         {
-            if (!active)
-                return;
-
-            current.Add(key);
-            if (_activeLifeSupportWarnings.Add(key))
-            {
-                Events.Add(SimTime, SimulationEventKind.LifeSupportWarning, message, crewId: crewId);
-            }
+            if (!_currentLifeSupportWarnings.Contains(key))
+                _staleLifeSupportWarnings.Add(key);
         }
+        foreach (var key in _staleLifeSupportWarnings)
+            _activeLifeSupportWarnings.Remove(key);
     }
 
     private void RecordCrewVitalChanges()

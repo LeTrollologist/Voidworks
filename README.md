@@ -8,7 +8,7 @@ The goal is a simulation where machinery, resources, atmosphere, and people depe
 
 > **Project status:** Active development. Features and interfaces may change as the simulation evolves.
 
-**Current release:** `0.4.1` — the `derelict-crisis` vertical slice plus the `cannibalize` salvage scenario, crew skills, work priorities, plumbing flow visualization, and release diagnostics. Run `dotnet run --project src/Voidworks.Game/Voidworks.Game.csproj -- --version` to print the build identity. Release notes live in [CHANGELOG.md](CHANGELOG.md).
+**Current release:** `0.5.0` — the `derelict-crisis` vertical slice plus the `cannibalize` salvage scenario, crew skills, work priorities, plumbing flow visualization, release diagnostics, and a 2× simulation performance pass. Run `dotnet run --project src/Voidworks.Game/Voidworks.Game.csproj -- --version` to print the build identity. Release notes live in [CHANGELOG.md](CHANGELOG.md).
 
 ## Features
 
@@ -212,7 +212,7 @@ Publish a framework-dependent Windows x64 build (requires the .NET 10 desktop ru
 dotnet publish src/Voidworks.Game/Voidworks.Game.csproj -c Release -r win-x64 --self-contained false -o artifacts/win-x64
 ```
 
-Run it with `dotnet artifacts/win-x64/Voidworks.Game.dll`, or add `-- --headless` for a console-only smoke run. `artifacts/` and save files are not tracked by git. The current release is `0.4.1`; see [CHANGELOG.md](CHANGELOG.md) for what changed.
+Run it with `dotnet artifacts/win-x64/Voidworks.Game.dll`, or add `-- --headless` for a console-only smoke run. `artifacts/` and save files are not tracked by git. The current release is `0.5.0`; see [CHANGELOG.md](CHANGELOG.md) for what changed.
 
 ## Diagnostics and troubleshooting
 

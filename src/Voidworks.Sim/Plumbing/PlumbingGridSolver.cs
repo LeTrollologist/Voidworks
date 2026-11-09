@@ -251,7 +251,7 @@ public sealed class PlumbingGridSolver
                 var cur = queue.Dequeue();
                 subnet.Add(cur);
 
-                foreach (var neighbor in cur.Cardinals())
+                foreach (GridCoord neighbor in cur.GetCardinals())
                 {
                     if (pipes.Contains(neighbor) && visited.Add(neighbor))
                     {
@@ -288,7 +288,7 @@ public sealed class PlumbingGridSolver
             var current = queue.Dequeue();
             if (destinationPipes.Contains(current)) return true;
 
-            foreach (var neighbor in current.Cardinals())
+            foreach (GridCoord neighbor in current.GetCardinals())
             {
                 if (pipes.Contains(neighbor) && visited.Add(neighbor))
                     queue.Enqueue(neighbor);

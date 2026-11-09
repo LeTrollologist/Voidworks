@@ -361,6 +361,24 @@ stack, and up to the 40 most recent simulation events. Writing a report is
 best-effort; a failure to write must not mask the original crash, so it is reported
 to stderr and otherwise ignored.
 
+## Performance characteristics
+
+The fixed tick runs ten times per simulated second, so hot loops avoid per-tick
+allocation:
+
+- `GridCoord.GetCardinals()` returns a struct enumerator for `foreach`; the LINQ
+  `Cardinals()` overload remains for low-frequency call sites.
+- `PowerGridSolver` and `PlumbingGridSolver` keep reusable scratch collections and
+  solve networks in place instead of building per-tick subnet objects.
+- Life-support warnings use struct keys and only format event text when a condition
+  transitions to active.
+- Scenario objective status strings refresh every five ticks; completion checks still
+  run every tick.
+
+Current measurements (see `--benchmark`): about 0.11 ms mean and 16.7 KB allocated per
+tick on the primary mission with three crew and ten machines. Rendering is not part of
+that measurement and has not been profiled.
+
 ## Running the checks
 
 ```powershell

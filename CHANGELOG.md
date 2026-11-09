@@ -4,6 +4,43 @@ All notable changes to Voidworks are recorded here. Versions follow the build
 identity in `Directory.Build.props`; save files are versioned separately and
 documented in [`docs/simulation-contract.md`](docs/simulation-contract.md).
 
+## [0.5.0] - 2026-11-09
+
+Performance pass on the fixed-tick simulation, guided by `--benchmark`.
+
+### Changed
+
+- **Power grid solver** now reuses its flood-fill and priority-tier scratch state
+  instead of allocating subnets, cable sets, and LINQ groupings every tick.
+- **`GridCoord.GetCardinals()`** returns a struct enumerator; hot loops in power,
+  plumbing, pathfinding, and rendering use it without allocating a heap enumerator.
+- **Life-support warnings** use struct keys and only build message strings when a
+  condition becomes active, instead of constructing formatted keys and messages for
+  every crew member every tick.
+- **Scenario objective status** text refreshes every five ticks rather than every
+  tick; completion and failure checks still run on every tick.
+
+### Measured
+
+`--benchmark --ticks 3000` on `derelict-crisis` (20×9, three crew, ten machines),
+same machine and build configuration:
+
+| Metric | Before (0.4.x) | After |
+| --- | --- | --- |
+| Mean tick | 0.25 ms | 0.11 ms |
+| Allocations | 35.9 KB/tick | 16.7 KB/tick |
+
+### Added
+
+- Two tests for the cardinal-neighbor struct enumerator and its compatible LINQ
+  overload.
+
+### Notes
+
+- 230 automated tests pass against this revision.
+- Save format is unchanged at version 8; no simulation rules or balance changed.
+- Rendering performance and larger-ship profiling remain open.
+
 ## [0.4.1] - 2026-11-09
 
 Patch release for tool contention during salvage and repair.

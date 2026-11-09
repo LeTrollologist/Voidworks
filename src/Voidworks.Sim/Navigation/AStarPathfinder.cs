@@ -126,7 +126,7 @@ public static class AStarPathfinder
             if (!closedSet.Add(current))
                 continue;
 
-            foreach (var neighbor in current.Cardinals())
+            foreach (GridCoord neighbor in current.GetCardinals())
             {
                 if (!grid.IsInBounds(neighbor))
                     continue;
@@ -456,7 +456,7 @@ public static class AStarPathfinder
         while (queue.Count > 0)
         {
             var current = queue.Dequeue();
-            foreach (var neighbor in current.Cardinals())
+            foreach (GridCoord neighbor in current.GetCardinals())
             {
                 if (!grid.IsInBounds(neighbor))
                     continue;

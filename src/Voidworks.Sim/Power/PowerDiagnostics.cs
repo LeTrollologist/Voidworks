@@ -64,7 +64,7 @@ public static class PowerDiagnostics
         while (queue.Count > 0)
         {
             var current = queue.Dequeue();
-            foreach (var neighbor in current.Cardinals())
+            foreach (GridCoord neighbor in current.GetCardinals())
             {
                 if (conductive.Contains(neighbor) && network.Add(neighbor))
                     queue.Enqueue(neighbor);

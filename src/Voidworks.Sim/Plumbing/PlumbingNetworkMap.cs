@@ -247,7 +247,7 @@ public sealed class PlumbingNetworkMap
         while (queue.Count > 0)
         {
             GridCoord current = queue.Dequeue();
-            foreach (GridCoord neighbor in current.Cardinals())
+            foreach (GridCoord neighbor in current.GetCardinals())
             {
                 if (partition.Contains(neighbor) && distance.TryAdd(neighbor, distance[current] + 1))
                     queue.Enqueue(neighbor);

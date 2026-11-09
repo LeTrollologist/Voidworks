@@ -128,7 +128,7 @@ public sealed class ViewportRenderer
             float cableRadius = Math.Max(2f, camera.Zoom * 0.09f);
             drawList.AddCircleFilled(center, cableRadius, cableCol);
 
-            foreach (var neighbor in cable.Cardinals())
+            foreach (GridCoord neighbor in cable.GetCardinals())
             {
                 if (sim.Cables.Contains(neighbor) && (neighbor.X > cable.X || neighbor.Y > cable.Y))
                 {
@@ -157,7 +157,7 @@ public sealed class ViewportRenderer
 
             drawList.AddCircleFilled(center, Math.Max(2f, camera.Zoom * 0.1f), pipeCol);
 
-            foreach (var neighbor in pipe.Cardinals())
+            foreach (GridCoord neighbor in pipe.GetCardinals())
             {
                 if (sim.PlumbingSolver.CoolantPipes.Contains(neighbor) && (neighbor.X > pipe.X || neighbor.Y > pipe.Y))
                 {
@@ -188,7 +188,7 @@ public sealed class ViewportRenderer
 
             drawList.AddCircleFilled(center, Math.Max(2f, camera.Zoom * 0.1f), pipeCol);
 
-            foreach (var neighbor in pipe.Cardinals())
+            foreach (GridCoord neighbor in pipe.GetCardinals())
             {
                 if (sim.PlumbingSolver.PropellantPipes.Contains(neighbor) && (neighbor.X > pipe.X || neighbor.Y > pipe.Y))
                 {

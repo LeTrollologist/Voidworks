@@ -20,6 +20,10 @@ public sealed class Scenario
     public Action<SimulationState>? SetupAction { get; set; }
     public Func<SimulationState, string?>? FailureEvaluator { get; set; }
 
+    // Objective status text only needs to be human-readable, not rebuilt ten times
+    // a second. Completion checks still run on every tick.
+    private int _statusRefreshCountdown;
+
     public Scenario(string id, string title, string description, double? timeLimitSeconds = null)
     {
         Id = id;
@@ -64,9 +68,11 @@ public sealed class Scenario
         }
 
         // Evaluate objectives
+        bool refreshStatus = _statusRefreshCountdown == 0;
+        _statusRefreshCountdown = refreshStatus ? 4 : _statusRefreshCountdown - 1;
         foreach (var obj in Objectives)
         {
-            obj.Evaluate(sim);
+            obj.Evaluate(sim, refreshStatus);
         }
 
         // Win condition: All objectives completed

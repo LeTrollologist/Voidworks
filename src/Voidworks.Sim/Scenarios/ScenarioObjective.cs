@@ -27,11 +27,16 @@ public sealed class ScenarioObjective
         StatusProvider = statusProvider;
     }
 
-    public void Evaluate(SimulationState sim)
+    /// <summary>
+    /// Evaluates completion every call, but only refreshes the display status when
+    /// requested. Completed objectives keep their last status text.
+    /// </summary>
+    public void Evaluate(SimulationState sim, bool updateStatus = true)
     {
         if (IsCompleted || IsFailed) return;
 
-        Status = StatusProvider?.Invoke(sim);
+        if (updateStatus)
+            Status = StatusProvider?.Invoke(sim);
 
         if (Evaluator != null && Evaluator(sim))
         {
