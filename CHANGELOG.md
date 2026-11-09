@@ -4,6 +4,37 @@ All notable changes to Voidworks are recorded here. Versions follow the build
 identity in `Directory.Build.props`; save files are versioned separately and
 documented in [`docs/simulation-contract.md`](docs/simulation-contract.md).
 
+## [0.2.0] - 2026-11-09
+
+Completes the Phase 5 plumbing work: the engineering overlay now explains pipe
+networks instead of only drawing them.
+
+### Added
+
+- **Plumbing network analysis** (`PlumbingNetworkMap`): connected coolant and
+  propellant sections with deterministic ids, per-section source/sink detection,
+  live flow rate, and an ordered blocked reason.
+- **Flow direction**: breadth-first distance from the sink contact tiles drives a
+  chevron on every pipe tile, pointing toward the radiator (coolant) or engine
+  (propellant).
+- **Overlay upgrades**: alternating shades per connected section, red blocked
+  sections, red crosses on sections missing a source or sink, and a legend that lists
+  each blocked reason alongside live coolant (L/s) and propellant (kg/s) flow.
+- Eight new tests covering connected and severed loops, dry coolant, unpowered pumps,
+  unexposed radiators, propellant direction, empty tanks, and deterministic section
+  ids.
+
+### Changed
+
+- The plumbing legend is now an auto-sized diagnostic summary instead of a fixed
+  two-line key.
+
+### Notes
+
+- 209 automated tests pass against this revision.
+- The overlay is read-only: analyzing the network never mutates simulation state, and
+  no save-format change was required (still version 8).
+
 ## [0.1.0] - 2026-11-08
 
 First tagged release: the `derelict-crisis` vertical slice with autonomous crew,

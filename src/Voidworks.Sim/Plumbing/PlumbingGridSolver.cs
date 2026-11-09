@@ -131,6 +131,12 @@ public sealed class PlumbingGridSolver
         }
     }
 
+    /// <summary>Fraction of nominal coolant flow available from the stored loop volume.</summary>
+    public double CoolantAvailabilityFactor =>
+        !double.IsFinite(CoolantStoredLiters) || !double.IsFinite(CoolantCapacityLiters) || CoolantStoredLiters <= 0.0
+            ? 0.0
+            : Math.Clamp(CoolantStoredLiters / CoolantPumpPrimeVolumeLiters, 0.0, 1.0);
+
     private double GetCoolantAvailability()
     {
         if (!double.IsFinite(CoolantStoredLiters) || !double.IsFinite(CoolantCapacityLiters) || CoolantStoredLiters <= 0.0)
@@ -138,7 +144,7 @@ public sealed class PlumbingGridSolver
 
         double capacity = Math.Max(0.0, CoolantCapacityLiters);
         CoolantStoredLiters = Math.Clamp(CoolantStoredLiters, 0.0, capacity);
-        return Math.Clamp(CoolantStoredLiters / CoolantPumpPrimeVolumeLiters, 0.0, 1.0);
+        return CoolantAvailabilityFactor;
     }
 
     private bool HasSeveredCoolantLoop(List<Machine> reactors, List<Machine> radiators)
@@ -226,7 +232,7 @@ public sealed class PlumbingGridSolver
         }
     }
 
-    private static List<HashSet<GridCoord>> PartitionPipes(HashSet<GridCoord> pipes)
+    internal static List<HashSet<GridCoord>> PartitionPipes(HashSet<GridCoord> pipes)
     {
         var visited = new HashSet<GridCoord>();
         var subnets = new List<HashSet<GridCoord>>();

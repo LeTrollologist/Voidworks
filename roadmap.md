@@ -12,6 +12,7 @@ Simulation update ordering, job lifecycle and retry rules, invariant checks, sav
 
 ## Recent Progress
 
+- **2026-11-09:** Released **v0.2.0** and finished Phase 5. The plumbing overlay now separates connected pipe sections by shade, draws flow-direction chevrons toward the radiator or engine, colors blocked sections red, marks sections missing an endpoint with a red cross, and lists each blocked section's reason plus live coolant and propellant flow in the legend. The analysis lives in headless `PlumbingNetworkMap` with deterministic section ids and no state mutation; 209 tests pass.
 - **2026-11-08:** Released **v0.1.0**. Finished Phase 3 crew management: crew members now carry construction, repair, and logistics proficiency that scales their work speed, and per-crew work priorities (low/normal/high/urgent) bias routine job selection without delaying emergencies. Both are player-visible in the roster and inspector, use the validated command layer, and persist in save format v8 with migration from older saves. Added build identity (`--version`, window title) and release documentation; 201 tests pass.
 - **2026-11-02:** Completed the fresh-start UI playthrough of `derelict-crisis`: mission complete at 185.5s, all four objectives, auxiliary battery built at the selected tile, radiator feed powered, and save/load preserved the completed state. A loading UI quirk was clarified as the intended terminal mission report. Added quick placement hotkeys (`1`-`5`), machine toggle (`O`), and hovered/selected tile readout.
 - **2026-10-31:** Added a global build and utilities palette with drag painting, idempotent utility commands, red invalid-placement previews, one-shot machine placement, `Esc` cancellation, session undo (`Ctrl+Z` or the palette button), quick tool hotkeys (`1`-`5`), selected-machine toggle (`O`), and a hovered/selected tile readout. The palette applies edits after the UI frame to prevent UI clicks from leaking into the world. Earlier in the day, Phase 5 diagnostics and the cascade scenario were completed, and Phase 6 gained its default primary mission with briefing, objective status, contextual guidance, and terminal reports; 191 tests pass. The fresh-start mouse-only and independent new-player validations remain manual Phase 6 items.
@@ -119,7 +120,7 @@ Simulation update ordering, job lifecycle and retry rules, invariant checks, sav
 - [x] Test pipe damage, leaks, isolation, pumps, flow limits, and repair.
 - [x] Test coolant loss through reactor overheating and shutdown to recovery.
 - [x] Test propellant delivery, tank depletion, and engine behavior.
-- [ ] Show flow direction, connected components, blocked sections, and shortages.
+- [x] Show flow direction, connected components, blocked sections, and shortages.
 
 ### Cross-system failures
 - [x] Initial systemic failure and recovery scenarios exist.

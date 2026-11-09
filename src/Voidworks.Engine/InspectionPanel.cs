@@ -11,6 +11,7 @@ using Voidworks.Sim.Jobs;
 using Voidworks.Sim.Machinery;
 using Voidworks.Sim.Navigation;
 using Voidworks.Sim.Persistence;
+using Voidworks.Sim.Plumbing;
 using Voidworks.Sim.Power;
 using Voidworks.Sim.Ship;
 
@@ -73,7 +74,7 @@ public sealed class InspectionPanel
             RenderCrewPathDebugPanel(sim);
         if (_showManagementPanel)
             _managementPanel.Render(sim, ref selectedTile, ref selectedCrew, ref selectedMachine);
-        RenderOverlayLegend(overlayMode);
+        RenderOverlayLegend(overlayMode, sim);
         if (_showDebugPanel)
             _debugPanel.RenderDebug(sim);
         if (_showAlertsPanel)
@@ -223,13 +224,13 @@ public sealed class InspectionPanel
         ImGui.End();
     }
 
-    private static void RenderOverlayLegend(OverlayMode overlayMode)
+    private static void RenderOverlayLegend(OverlayMode overlayMode, SimulationState sim)
     {
         if (overlayMode == OverlayMode.Normal)
             return;
 
         ImGui.SetNextWindowPos(new float2(490f, 165f), ImGuiCond.FirstUseEver);
-        ImGui.SetNextWindowSize(new float2(320f, 120f), ImGuiCond.FirstUseEver);
+        ImGui.SetNextWindowSize(new float2(340f, 0f), ImGuiCond.FirstUseEver);
         if (!ImGui.Begin("Overlay Legend"))
         {
             ImGui.End();
@@ -260,8 +261,14 @@ public sealed class InspectionPanel
                 ImGui.TextColored(new float4(1.0f, 0.35f, 0.3f, 1.0f), "Red: unpowered / offline");
                 break;
             case OverlayMode.Plumbing:
-                ImGui.TextColored(new float4(1.0f, 0.6f, 0.2f, 1.0f), "Orange: coolant loop");
-                ImGui.TextColored(new float4(0.2f, 0.5f, 1.0f, 1.0f), "Blue: propellant line");
+                ImGui.TextColored(new float4(1.0f, 0.6f, 0.2f, 1.0f), "Orange: coolant flowing to radiator");
+                ImGui.TextColored(new float4(0.2f, 0.5f, 1.0f, 1.0f), "Blue: propellant flowing to engine");
+                ImGui.TextColored(new float4(0.9f, 0.25f, 0.2f, 1.0f), "Red: section blocked, no flow");
+                ImGui.TextColored(new float4(0.9f, 0.25f, 0.2f, 1.0f), "Red cross: missing endpoint");
+                ImGui.TextDisabled("Alternating shades mark separate pipe sections.");
+                ImGui.TextDisabled("Arrows show flow direction toward the sink.");
+                ImGui.Separator();
+                RenderPlumbingNetworkSummary(sim);
                 break;
             case OverlayMode.Thermal:
                 ImGui.TextColored(new float4(1.0f, 0.35f, 0.3f, 1.0f), "Red: hot (> 500 K)");
@@ -277,6 +284,45 @@ public sealed class InspectionPanel
 
         ImGui.End();
     }
+
+    /// <summary>
+    /// Lists blocked pipe sections and current flow so the overlay explains itself
+    /// without opening the production or debug panels.
+    /// </summary>
+    private static void RenderPlumbingNetworkSummary(SimulationState sim)
+    {
+        PlumbingNetworkMap map = PlumbingNetworkMap.Analyze(sim);
+        int sectionCount = map.CoolantSections.Count + map.PropellantSections.Count;
+        if (sectionCount == 0)
+        {
+            ImGui.TextDisabled("No plumbing is installed.");
+            return;
+        }
+
+        ImGui.Text($"Coolant flow: {sim.PlumbingSolver.TotalCoolantFlowRateLitersPerSecond:F2} L/s");
+        ImGui.Text($"Propellant flow: {sim.PlumbingSolver.TotalPropellantFlowRateKgPerSec:F2} kg/s");
+
+        int blocked = 0;
+        foreach (PipeSection section in map.CoolantSections.Concat(map.PropellantSections))
+        {
+            if (section.BlockedReason == null)
+                continue;
+
+            blocked++;
+            if (blocked <= 4)
+                ImGui.TextColored(new float4(1.0f, 0.45f, 0.3f, 1.0f),
+                    $"{SectionLabel(section)}: {section.BlockedReason}");
+        }
+
+        if (blocked == 0)
+            ImGui.TextColored(new float4(0.4f, 1.0f, 0.5f, 1.0f), "All pipe sections are flowing.");
+        else if (blocked > 4)
+            ImGui.TextDisabled($"+{blocked - 4} more blocked section(s)");
+    }
+
+    private static string SectionLabel(PipeSection section) => section.Type == PipeType.Coolant
+        ? $"Coolant section {section.Id + 1}"
+        : $"Propellant section {section.Id + 1}";
 
     private void RenderBuildPalette()
     {

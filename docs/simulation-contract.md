@@ -206,6 +206,28 @@ lines, flameout, and zero propellant flow. External radiators are the only machi
 allowed on space tiles, and a coolant service pipe may occupy the radiator tile or an
 adjacent hull tile; all other utilities and machinery still require a non-space tile.
 
+### Plumbing network visualization
+
+`PlumbingNetworkMap.Analyze(sim)` returns a read-only snapshot for the plumbing
+overlay and legend. It never mutates simulation state.
+
+- Coolant and propellant pipes are partitioned into connected sections by cardinal
+  adjacency. Section ids are deterministic: partitions are ordered by minimum tile
+  X then Y, and ids restart per pipe type.
+- A machine counts as connected to a section when its tile, or any cardinal neighbor,
+  is a pipe tile in that section.
+- Flow direction is produced only for sections that actually flow. Sink contact pipe
+  tiles start a breadth-first search, and every other tile points at its neighbor one
+  step closer to the sink. Heat therefore reads reactor -> radiator, and propellant
+  reads tank -> engine. Tiles adjacent to the sink carry no chevron because they are
+  the search origins.
+- Blocked reasons are ordered by cause: no source, no sink, dry loop, no space
+  exposure, pump offline, pump unpowered, no flow (coolant); no tank, no engine,
+  empty tank, engine offline, engine unpowered, engine not firing (propellant).
+- The overlay tints each section separately, colors blocked sections red, crosses
+  sections missing an endpoint, and the legend lists blocked reasons plus current
+  coolant (L/s) and propellant (kg/s) flow.
+
 Life-support warnings use the `LifeSupportWarning` event kind and are deduplicated per
 active condition (per crew oxygen/hunger/thirst, and per-tile CO₂). A cleared condition
 is removed from the active set, so a recurrence raises a new warning. The alert feed

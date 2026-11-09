@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Brutal.ImGuiApi;
 using Brutal.Numerics;
@@ -7,6 +8,7 @@ using Voidworks.Sim.Crew;
 using Voidworks.Sim.Items;
 using Voidworks.Sim.Jobs;
 using Voidworks.Sim.Machinery;
+using Voidworks.Sim.Plumbing;
 using Voidworks.Sim.Ship;
 
 namespace Voidworks.Engine;
@@ -23,6 +25,10 @@ public sealed class ViewportRenderer
     public uint ColorGridLine = 0x22FFFFFF;   // Subtle tile grid
     public uint ColorHover = 0x44FFFFFF;      // Hover highlight
 
+    // Alternating shades identify distinct connected pipe sections in the plumbing overlay.
+    private static readonly uint[] CoolantFlowShades = [0xFFFFA020, 0xFFFFC060, 0xFFFF8820];
+    private static readonly uint[] PropellantFlowShades = [0xFF2080FF, 0xFF60A8FF, 0xFF2060D0];
+
     public void Render(
         ImDrawListPtr drawList,
         SimulationState sim,
@@ -34,6 +40,9 @@ public sealed class ViewportRenderer
         PlacementPreview? placementPreview = null)
     {
         var grid = sim.Grid;
+        PlumbingNetworkMap? plumbing = overlayMode == OverlayMode.Plumbing
+            ? PlumbingNetworkMap.Analyze(sim)
+            : null;
 
         // 1. Draw ship tiles
         for (int y = 0; y < grid.Height; y++)
@@ -137,6 +146,15 @@ public sealed class ViewportRenderer
             var center = pMin + new float2(camera.Zoom * 0.5f, camera.Zoom * 0.5f);
 
             uint pipeCol = overlayMode == OverlayMode.Plumbing ? 0xFFFFA020 : 0xFF805010; // Azure coolant
+            PipeSection? section = null;
+            if (plumbing != null)
+            {
+                section = FindSection(plumbing.CoolantSectionIdByTile, plumbing.CoolantSections, pipe);
+                pipeCol = section == null
+                    ? 0xFF909090
+                    : section.IsFlowing ? CoolantFlowShades[section.Id % CoolantFlowShades.Length] : 0xFFE04030;
+            }
+
             drawList.AddCircleFilled(center, Math.Max(2f, camera.Zoom * 0.1f), pipeCol);
 
             foreach (var neighbor in pipe.Cardinals())
@@ -148,6 +166,9 @@ public sealed class ViewportRenderer
                     drawList.AddLine(center, nCenter, pipeCol, Math.Max(2.5f, camera.Zoom * 0.09f));
                 }
             }
+
+            if (section is { IsStructurallyIncomplete: true })
+                DrawMissingEndpointMarker(drawList, center, camera.Zoom, 0xFFFF5040);
         }
 
         foreach (var pipe in sim.PlumbingSolver.PropellantPipes)
@@ -156,6 +177,15 @@ public sealed class ViewportRenderer
             var center = pMin + new float2(camera.Zoom * 0.5f, camera.Zoom * 0.5f);
 
             uint pipeCol = overlayMode == OverlayMode.Plumbing ? 0xFF2080FF : 0xFF204080; // Orange fuel line
+            PipeSection? section = null;
+            if (plumbing != null)
+            {
+                section = FindSection(plumbing.PropellantSectionIdByTile, plumbing.PropellantSections, pipe);
+                pipeCol = section == null
+                    ? 0xFF909090
+                    : section.IsFlowing ? PropellantFlowShades[section.Id % PropellantFlowShades.Length] : 0xFFE04030;
+            }
+
             drawList.AddCircleFilled(center, Math.Max(2f, camera.Zoom * 0.1f), pipeCol);
 
             foreach (var neighbor in pipe.Cardinals())
@@ -167,6 +197,15 @@ public sealed class ViewportRenderer
                     drawList.AddLine(center, nCenter, pipeCol, Math.Max(2.5f, camera.Zoom * 0.09f));
                 }
             }
+
+            if (section is { IsStructurallyIncomplete: true })
+                DrawMissingEndpointMarker(drawList, center, camera.Zoom, 0xFFFF5040);
+        }
+
+        if (plumbing != null)
+        {
+            DrawFlowArrows(drawList, camera, viewportCenter, plumbing.CoolantFlowDirections, 0xFFFFE0A0);
+            DrawFlowArrows(drawList, camera, viewportCenter, plumbing.PropellantFlowDirections, 0xFFB0D8FF);
         }
 
         // 4. Draw machines
@@ -368,6 +407,70 @@ public sealed class ViewportRenderer
                   $"{order.WorkRemainingSeconds:F1}s";
             drawList.AddText(pMin + new float2(3f, 3f), 0xFFFFFFFF, label);
         }
+    }
+
+    private static PipeSection? FindSection(
+        IReadOnlyDictionary<GridCoord, int> sectionIdByTile,
+        IReadOnlyList<PipeSection> sections,
+        GridCoord tile)
+        => sectionIdByTile.TryGetValue(tile, out int id) && id >= 0 && id < sections.Count
+            ? sections[id]
+            : null;
+
+    /// <summary>Draws a small chevron on each pipe tile pointing toward the sink.</summary>
+    private static void DrawFlowArrows(
+        ImDrawListPtr drawList,
+        Camera2D camera,
+        float2 viewportCenter,
+        IReadOnlyDictionary<GridCoord, GridCoord> directions,
+        uint color)
+    {
+        if (camera.Zoom < 18f)
+            return;
+
+        float halfTile = camera.Zoom * 0.5f;
+        float head = Math.Clamp(camera.Zoom * 0.16f, 3f, 8f);
+        float thickness = Math.Max(1.5f, camera.Zoom * 0.03f);
+
+        foreach (var (from, to) in directions)
+        {
+            float2 start = camera.WorldToScreen(new float2(from.X, from.Y), viewportCenter) +
+                new float2(halfTile, halfTile);
+            float2 end = camera.WorldToScreen(new float2(to.X, to.Y), viewportCenter) +
+                new float2(halfTile, halfTile);
+
+            float dx = end.X - start.X;
+            float dy = end.Y - start.Y;
+            float length = MathF.Sqrt(dx * dx + dy * dy);
+            if (length < 0.001f)
+                continue;
+
+            float ux = dx / length;
+            float uy = dy / length;
+            float2 tip = new(start.X + dx * 0.58f, start.Y + dy * 0.58f);
+            float2 left = new(
+                tip.X - ux * head - uy * head * 0.55f,
+                tip.Y - uy * head + ux * head * 0.55f);
+            float2 right = new(
+                tip.X - ux * head + uy * head * 0.55f,
+                tip.Y - uy * head - ux * head * 0.55f);
+
+            drawList.AddLine(tip, left, color, thickness);
+            drawList.AddLine(tip, right, color, thickness);
+        }
+    }
+
+    /// <summary>Marks a pipe section that is missing its source or sink with a red cross.</summary>
+    private static void DrawMissingEndpointMarker(ImDrawListPtr drawList, float2 center, float zoom, uint color)
+    {
+        float half = Math.Max(2.5f, zoom * 0.17f);
+        float thickness = Math.Max(1.5f, zoom * 0.035f);
+        drawList.AddLine(
+            new float2(center.X - half, center.Y - half),
+            new float2(center.X + half, center.Y + half), color, thickness);
+        drawList.AddLine(
+            new float2(center.X - half, center.Y + half),
+            new float2(center.X + half, center.Y - half), color, thickness);
     }
 
     private uint GetTileColor(ShipTile tile, OverlayMode mode)

@@ -8,7 +8,7 @@ The goal is a simulation where machinery, resources, atmosphere, and people depe
 
 > **Project status:** Active development. Features and interfaces may change as the simulation evolves.
 
-**Current release:** `0.1.0` — the first tagged build of the `derelict-crisis` vertical slice. Run `dotnet run --project src/Voidworks.Game/Voidworks.Game.csproj -- --version` to print the build identity. Release notes live in [CHANGELOG.md](CHANGELOG.md).
+**Current release:** `0.2.0` — the `derelict-crisis` vertical slice with crew skills, work priorities, and plumbing flow visualization. Run `dotnet run --project src/Voidworks.Game/Voidworks.Game.csproj -- --version` to print the build identity. Release notes live in [CHANGELOG.md](CHANGELOG.md).
 
 ## Features
 
@@ -58,6 +58,8 @@ The goal is a simulation where machinery, resources, atmosphere, and people depe
 ### Plumbing and thermal management
 
 - Plumbing network partitioning and connected fluid conduits.
+- The plumbing overlay separates connected pipe sections by shade, draws flow-direction chevrons toward the radiator or engine, marks blocked sections red, and puts a red cross on sections missing an endpoint.
+- The overlay legend lists every blocked section with its reason and shows current coolant and propellant flow, so severed loops, dry coolant, unpowered pumps, unexposed radiators, empty tanks, and idle engines are readable without opening the debug panel.
 - Coolant loop linking reactor heat management with external radiator fins.
 - Propellant delivery from fuel tanks to the main engine.
 - Coolant-loss scenarios that can overheat the reactor and trigger an emergency SCRAM.
@@ -198,7 +200,7 @@ Publish a framework-dependent Windows x64 build (requires the .NET 10 desktop ru
 dotnet publish src/Voidworks.Game/Voidworks.Game.csproj -c Release -r win-x64 --self-contained false -o artifacts/win-x64
 ```
 
-Run it with `dotnet artifacts/win-x64/Voidworks.Game.dll`, or add `-- --headless` for a console-only smoke run. `artifacts/` and save files are not tracked by git. The current release is `0.1.0`; see [CHANGELOG.md](CHANGELOG.md) for what changed.
+Run it with `dotnet artifacts/win-x64/Voidworks.Game.dll`, or add `-- --headless` for a console-only smoke run. `artifacts/` and save files are not tracked by git. The current release is `0.2.0`; see [CHANGELOG.md](CHANGELOG.md) for what changed.
 
 ## Current simulation loop
 
