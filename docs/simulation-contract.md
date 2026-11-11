@@ -370,12 +370,14 @@ allocation:
   `Cardinals()` overload remains for low-frequency call sites.
 - `PowerGridSolver` and `PlumbingGridSolver` keep reusable scratch collections and
   solve networks in place instead of building per-tick subnet objects.
+- The job board's priority, assistance, and breach-support scans run without LINQ
+  allocation and exit early when there is nothing to claim.
 - Life-support warnings use struct keys and only format event text when a condition
   transitions to active.
 - Scenario objective status strings refresh every five ticks; completion checks still
   run every tick.
 
-Current measurements (see `--benchmark`): about 0.11 ms mean and 16.7 KB allocated per
+Current measurements (see `--benchmark`): about 0.09 ms mean and 10.1 KB allocated per
 tick on the primary mission with three crew and ten machines. Rendering is not part of
 that measurement and has not been profiled.
 

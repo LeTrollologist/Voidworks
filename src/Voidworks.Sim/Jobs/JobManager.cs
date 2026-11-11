@@ -393,13 +393,33 @@ public sealed class JobManager
         int Score(Job job) => job.Priority +
             (job.IsEmergency ? 0 : scoreAdjustment?.Invoke(job) ?? 0);
 
-        var job = _jobs
-            .Where(j => (!excludedJobId.HasValue || j.Id != excludedJobId.Value) &&
-                        CanCrewClaimJob(j, crew))
-            .OrderByDescending(j => j.IsEmergency)
-            .ThenByDescending(Score)
-            .ThenBy(j => EstimateTravelDistance(j, crew, grid))
-            .FirstOrDefault();
+        Job? job = null;
+        bool bestIsEmergency = false;
+        int bestScore = int.MinValue;
+        int bestTravel = int.MaxValue;
+
+        // Allocation-free scan: this runs whenever a crew member is idle.
+        foreach (var candidate in _jobs)
+        {
+            if (excludedJobId.HasValue && candidate.Id == excludedJobId.Value)
+                continue;
+            if (!CanCrewClaimJob(candidate, crew))
+                continue;
+
+            int score = Score(candidate);
+            int travel = EstimateTravelDistance(candidate, crew, grid);
+            bool better =
+                candidate.IsEmergency != bestIsEmergency ? candidate.IsEmergency :
+                score != bestScore ? score > bestScore :
+                travel < bestTravel;
+            if (job != null && !better)
+                continue;
+
+            job = candidate;
+            bestIsEmergency = candidate.IsEmergency;
+            bestScore = score;
+            bestTravel = travel;
+        }
 
         if (job != null)
         {
@@ -439,11 +459,28 @@ public sealed class JobManager
 
     public Job? ClaimAssistanceRequest(CrewMember helper, ShipGrid? grid = null)
     {
-        var request = AssistanceJobs
-            .Where(job => CanCrewClaimJob(job, helper))
-            .OrderByDescending(job => job.Priority)
-            .ThenBy(job => EstimateTravelDistance(job, helper, grid))
-            .FirstOrDefault();
+        if (!HasAssistanceRequests())
+            return null;
+
+        Job? request = null;
+        int bestTravel = int.MaxValue;
+        foreach (var candidate in _jobs)
+        {
+            if (candidate.Type != JobType.AssistCrew || !CanCrewClaimJob(candidate, helper))
+                continue;
+
+            int travel = EstimateTravelDistance(candidate, helper, grid);
+            if (request != null &&
+                (candidate.Priority < request.Priority ||
+                 (candidate.Priority == request.Priority && travel >= bestTravel)))
+            {
+                continue;
+            }
+
+            request = candidate;
+            bestTravel = travel;
+        }
+
         if (request != null)
         {
             request.TransitionToReserved(helper.Id);
@@ -454,12 +491,37 @@ public sealed class JobManager
         return request;
     }
 
+    private bool HasAssistanceRequests()
+    {
+        foreach (var job in _jobs)
+        {
+            if (job.Type == JobType.AssistCrew)
+                return true;
+        }
+        return false;
+    }
+
     public Job? FindBreachRepairToSupport(
         CrewMember helper,
         ShipGrid grid,
         IReadOnlyList<CrewAI>? crewAgents)
     {
         if (crewAgents == null || helper.Psychology.AssistanceWillingness < 25.0)
+            return null;
+
+        // Cheap scan first: supporting a breach is rare, and the full candidate
+        // evaluation runs A* per job.
+        bool hasAssignedBreachJob = false;
+        foreach (var job in _jobs)
+        {
+            if (job.Type == JobType.RepairBreach && job.IsEmergency && !job.IsTerminal &&
+                job.AssignedCrewId.HasValue && job.AssignedCrewId != helper.Id)
+            {
+                hasAssignedBreachJob = true;
+                break;
+            }
+        }
+        if (!hasAssignedBreachJob)
             return null;
 
         var candidate = _jobs
@@ -598,8 +660,11 @@ public sealed class JobManager
         if (machines == null)
             return;
 
-        foreach (var machine in machines.Where(candidate => candidate.IsBroken))
+        foreach (var machine in machines)
         {
+            if (!machine.IsBroken)
+                continue;
+
             bool repairExists = _jobs.Any(job => job.Type == JobType.RepairMachine &&
                                                  job.TargetCoord == machine.Position && !job.IsTerminal);
             if (!repairExists)

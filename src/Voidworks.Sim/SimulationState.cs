@@ -138,19 +138,26 @@ public sealed class SimulationState : IJobWorldContext
         // 6. Tick crew physiology & autonomous AI
         foreach (var c in Crew)
         {
-            int nearbyCrewCount = Crew.Count(other => other != c &&
-                other.Crew.Physiology.IsAlive && !other.Crew.Physiology.IsIncapacitated &&
-                Math.Abs(other.Crew.Position.X - c.Crew.Position.X) +
-                Math.Abs(other.Crew.Position.Y - c.Crew.Position.Y) <= 2);
+            int nearbyCrewCount = 0;
+            foreach (var other in Crew)
+            {
+                if (other == c || !other.Crew.Physiology.IsAlive || other.Crew.Physiology.IsIncapacitated)
+                    continue;
+                if (Math.Abs(other.Crew.Position.X - c.Crew.Position.X) +
+                    Math.Abs(other.Crew.Position.Y - c.Crew.Position.Y) <= 2)
+                {
+                    nearbyCrewCount++;
+                }
+            }
             c.Tick(Grid, JobManager, dt, nearbyCrewCount, Crew, Machines);
         }
 
         // Crew that died or became incapacitated during this tick must not leave
         // jobs reserved. Release them before new emergencies are posted.
-        foreach (var c in Crew.Where(c =>
-                     !c.Crew.Physiology.IsAlive || c.Crew.Physiology.IsIncapacitated))
+        foreach (var c in Crew)
         {
-            JobManager.ReleaseJobsAssignedTo(c.Crew.Id);
+            if (!c.Crew.Physiology.IsAlive || c.Crew.Physiology.IsIncapacitated)
+                JobManager.ReleaseJobsAssignedTo(c.Crew.Id);
         }
 
         // 7. Detect world emergencies (breaches, broken systems)

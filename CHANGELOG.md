@@ -4,6 +4,30 @@ All notable changes to Voidworks are recorded here. Versions follow the build
 identity in `Directory.Build.props`; save files are versioned separately and
 documented in [`docs/simulation-contract.md`](docs/simulation-contract.md).
 
+## [Unreleased]
+
+Continued simulation allocation work; no release cut yet.
+
+### Changed
+
+- **Job board scans are allocation-free.** Highest-priority claim, assistance
+  claiming, and breach-support lookup now use direct scans with early exits instead
+  of LINQ pipelines that allocated on every idle crew tick.
+- **Crew tick loop** counts nearby crew and releases jobs for dead or incapacitated
+  crew with plain loops rather than LINQ closures.
+- **Emergency machine scan** no longer allocates a filtered enumerator each tick.
+
+### Measured
+
+`--benchmark --ticks 3000` on `derelict-crisis` (20×9, three crew, ten machines):
+about **0.09 ms mean** and **10.1 KB allocated per tick**, down from 0.11 ms and
+16.7 KB/tick in 0.5.0.
+
+### Added
+
+- Four job-selection ordering tests covering priority over distance, travel-distance
+  tie-breaks, excluded jobs, and emergency rank under a preference score.
+
 ## [0.5.0] - 2026-11-09
 
 Performance pass on the fixed-tick simulation, guided by `--benchmark`.
