@@ -44,19 +44,17 @@ public sealed class ViewportRenderer
             ? PlumbingNetworkMap.Analyze(sim)
             : null;
 
-        // 1. Draw ship tiles
-        for (int y = 0; y < grid.Height; y++)
+        // 1. Draw ship tiles, restricted to the part of the grid that can be on screen.
+        float2 displaySize = ImGui.GetIO().DisplaySize;
+        TileViewportBounds visibleTiles = ViewportCulling.VisibleTiles(
+            grid, camera.WorldCenter, camera.Zoom, viewportCenter, displaySize);
+        for (int y = visibleTiles.MinY; y <= visibleTiles.MaxY; y++)
         {
-            for (int x = 0; x < grid.Width; x++)
+            for (int x = visibleTiles.MinX; x <= visibleTiles.MaxX; x++)
             {
                 var tile = grid[x, y];
                 var pMin = camera.WorldToScreen(new float2(x, y), viewportCenter);
                 var pMax = pMin + new float2(camera.Zoom, camera.Zoom);
-
-                if (pMax.X < 0 || pMax.Y < 0 || pMin.X > ImGui.GetIO().DisplaySize.X || pMin.Y > ImGui.GetIO().DisplaySize.Y)
-                {
-                    continue;
-                }
 
                 uint tileColor = GetTileColor(tile, overlayMode);
                 drawList.AddRectFilled(pMin, pMax, tileColor);

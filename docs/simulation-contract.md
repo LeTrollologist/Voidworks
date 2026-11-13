@@ -379,7 +379,9 @@ allocation:
 
 Current measurements (see `--benchmark`): about 0.09 ms mean and 10.1 KB allocated per
 tick on the primary mission with three crew and ten machines. Rendering is not part of
-that measurement and has not been profiled.
+that measurement and has not been profiled: the viewport renderer now culls to the
+camera's visible tile range (`ViewportCulling`) but every visible tile is still drawn
+immediately.
 
 ## Running the checks
 

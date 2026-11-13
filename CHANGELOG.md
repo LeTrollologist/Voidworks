@@ -10,6 +10,10 @@ Continued simulation allocation work; no release cut yet.
 
 ### Changed
 
+- **Rendering is culled to the visible grid range.** `ViewportCulling` computes the
+  inclusive tile bounds from the camera and display size, and the viewport renderer
+  walks only those tiles instead of the whole ship every frame. Covered by four unit
+  tests for clamping, zoom extremes, off-grid views, and invalid inputs.
 - **Job board scans are allocation-free.** Highest-priority claim, assistance
   claiming, and breach-support lookup now use direct scans with early exits instead
   of LINQ pipelines that allocated on every idle crew tick.
