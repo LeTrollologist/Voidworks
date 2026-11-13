@@ -394,7 +394,29 @@ public sealed class EngineApp
                 }
                 catch (Exception ex)
                 {
-                    _ui.SetPersistenceStatus($"Load failed ({loadPath}): {ex.Message}");
+                    // A crashed save can leave a complete temporary file behind. Try
+                    // to promote it once before reporting the original failure.
+                    string? recovered = SaveRecovery.TryRecoverInterruptedSave(loadPath, out string recoveryMessage);
+                    if (recovered != null)
+                    {
+                        try
+                        {
+                            sim = SimulationSerializer.LoadFromFile(recovered);
+                            _selectedCrew = sim.Crew.FirstOrDefault()?.Crew;
+                            _selectedMachine = null;
+                            _selectedTile = _selectedCrew?.Position;
+                            _ui.SetPersistenceStatus($"Recovered interrupted save. {recoveryMessage}");
+                        }
+                        catch (Exception recoveryFailure)
+                        {
+                            _ui.SetPersistenceStatus(
+                                $"Load failed ({loadPath}): {ex.Message} Recovery failed: {recoveryFailure.Message}");
+                        }
+                    }
+                    else
+                    {
+                        _ui.SetPersistenceStatus($"Load failed ({loadPath}): {ex.Message} {recoveryMessage}");
+                    }
                 }
                 finally
                 {

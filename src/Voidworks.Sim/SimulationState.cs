@@ -552,114 +552,141 @@ public sealed class SimulationState : IJobWorldContext
 
     private void PostProcessorInputDeliveryJobs()
     {
-        foreach (var machine in Machines.Where(machine => machine.IsOnline &&
-                     machine.Type is MachineType.ComponentFabricator or MachineType.IceProcessor))
+        // Allocation-free posting: this runs every fixed tick.
+        foreach (var machine in Machines)
         {
-            if (JobManager.IsTileFull(machine.Position))
+            if (!machine.IsOnline ||
+                machine.Type is not (MachineType.ComponentFabricator or MachineType.IceProcessor) ||
+                JobManager.IsTileFull(machine.Position))
+            {
                 continue;
+            }
 
             ItemType inputType = machine.Type == MachineType.ComponentFabricator
                 ? ItemType.SteelPlate
                 : ItemType.IceOre;
-            int targetStock = 2;
-            int onSite = JobManager.WorldItems.Count(item =>
-                item.Position == machine.Position && item.Type == inputType && item.IsAvailable);
-            int inTransit = JobManager.ActiveJobs.Count(job => job.Type == JobType.DeliverItem &&
-                job.TargetCoord == machine.Position && job.DesiredItemType == inputType);
-            int alreadyAvailable = onSite + inTransit;
-            int needed = Math.Max(0, targetStock - alreadyAvailable);
-
+            int needed = 2 - CountItemsOnSite(machine.Position, inputType)
+                           - CountDeliveriesInTransit(machine.Position, inputType);
             for (int i = 0; i < needed; i++)
             {
-                var item = JobManager.WorldItems
-                    .Where(candidate => candidate.Type == inputType && candidate.IsAvailable &&
-                        !JobManager.ActiveJobs.Any(job => job.TargetItem?.Id == candidate.Id))
-                    .OrderBy(candidate => Math.Abs(candidate.Position.X - machine.Position.X) +
-                                          Math.Abs(candidate.Position.Y - machine.Position.Y))
-                    .FirstOrDefault();
-                if (item == null) break;
+                Item? item = FindNearestUnclaimedItem(machine.Position, inputType);
+                if (item == null)
+                    break;
                 JobManager.PostJob(Job.CreateDeliverItem(machine.Position, item, priority: 45));
             }
 
-            if (machine.Type != MachineType.ComponentFabricator) continue;
-
-            int ironOnSite = JobManager.WorldItems.Count(item =>
-                item.Position == machine.Position && item.Type == ItemType.IronOre && item.IsAvailable);
-            int ironInTransit = JobManager.ActiveJobs.Count(job => job.Type == JobType.DeliverItem &&
-                job.TargetCoord == machine.Position && job.DesiredItemType == ItemType.IronOre);
-            if (ironOnSite + ironInTransit >= 1) continue;
-
-            var iron = JobManager.WorldItems
-                .Where(item => item.Type == ItemType.IronOre && item.IsAvailable &&
-                    !JobManager.ActiveJobs.Any(job => job.TargetItem?.Id == item.Id))
-                .OrderBy(item => Math.Abs(item.Position.X - machine.Position.X) +
-                                 Math.Abs(item.Position.Y - machine.Position.Y))
-                .FirstOrDefault();
-            if (iron != null)
-                JobManager.PostJob(Job.CreateDeliverItem(machine.Position, iron, priority: 45));
-        }
-
-        foreach (var bay in Machines.Where(m => m.IsOnline && m.Type == MachineType.HydroponicsBay && m.WaterStoredLiters <= 5.0))
-        {
-            if (JobManager.IsTileFull(bay.Position))
-                continue;
-
-            int onSite = JobManager.WorldItems.Count(item =>
-                item.Position == bay.Position && item.Type == ItemType.WaterRation && item.IsAvailable);
-            int inTransit = JobManager.ActiveJobs.Count(job => job.Type == JobType.DeliverItem &&
-                job.TargetCoord == bay.Position && job.DesiredItemType == ItemType.WaterRation);
-            if (onSite + inTransit < 1)
+            if (machine.Type == MachineType.ComponentFabricator &&
+                CountItemsOnSite(machine.Position, ItemType.IronOre) +
+                CountDeliveriesInTransit(machine.Position, ItemType.IronOre) < 1)
             {
-                var water = JobManager.WorldItems
-                    .Where(item => item.Type == ItemType.WaterRation && item.IsAvailable &&
-                        !JobManager.ActiveJobs.Any(job => job.TargetItem?.Id == item.Id))
-                    .OrderBy(item => Math.Abs(item.Position.X - bay.Position.X) +
-                                     Math.Abs(item.Position.Y - bay.Position.Y))
-                    .FirstOrDefault();
-                if (water != null)
-                    JobManager.PostJob(Job.CreateDeliverItem(bay.Position, water, priority: 60));
+                Item? iron = FindNearestUnclaimedItem(machine.Position, ItemType.IronOre);
+                if (iron != null)
+                    JobManager.PostJob(Job.CreateDeliverItem(machine.Position, iron, priority: 45));
             }
         }
 
-        foreach (var tank in Machines.Where(m => m.IsOnline && m.Type == MachineType.FuelTank && m.FuelStoredKg < m.FuelCapacityKg))
+        foreach (var bay in Machines)
         {
-            if (JobManager.IsTileFull(tank.Position))
-                continue;
-
-            int onSite = JobManager.WorldItems.Count(item =>
-                item.Position == tank.Position && item.Type == ItemType.FuelCanister && item.IsAvailable);
-            int inTransit = JobManager.ActiveJobs.Count(job => job.Type == JobType.DeliverItem &&
-                job.TargetCoord == tank.Position && job.DesiredItemType == ItemType.FuelCanister);
-            if (onSite + inTransit < 1)
+            if (!bay.IsOnline || bay.Type != MachineType.HydroponicsBay ||
+                bay.WaterStoredLiters > 5.0 || JobManager.IsTileFull(bay.Position))
             {
-                var fuel = JobManager.WorldItems
-                    .Where(item => item.Type == ItemType.FuelCanister && item.IsAvailable &&
-                        !JobManager.ActiveJobs.Any(job => job.TargetItem?.Id == item.Id))
-                    .OrderBy(item => Math.Abs(item.Position.X - tank.Position.X) +
-                                     Math.Abs(item.Position.Y - tank.Position.Y))
-                    .FirstOrDefault();
-                if (fuel != null)
-                    JobManager.PostJob(Job.CreateDeliverItem(tank.Position, fuel, priority: 55));
+                continue;
             }
+
+            if (CountItemsOnSite(bay.Position, ItemType.WaterRation) +
+                CountDeliveriesInTransit(bay.Position, ItemType.WaterRation) >= 1)
+            {
+                continue;
+            }
+
+            Item? water = FindNearestUnclaimedItem(bay.Position, ItemType.WaterRation);
+            if (water != null)
+                JobManager.PostJob(Job.CreateDeliverItem(bay.Position, water, priority: 60));
+        }
+
+        foreach (var tank in Machines)
+        {
+            if (!tank.IsOnline || tank.Type != MachineType.FuelTank ||
+                tank.FuelStoredKg >= tank.FuelCapacityKg || JobManager.IsTileFull(tank.Position))
+            {
+                continue;
+            }
+
+            if (CountItemsOnSite(tank.Position, ItemType.FuelCanister) +
+                CountDeliveriesInTransit(tank.Position, ItemType.FuelCanister) >= 1)
+            {
+                continue;
+            }
+
+            Item? fuel = FindNearestUnclaimedItem(tank.Position, ItemType.FuelCanister);
+            if (fuel != null)
+                JobManager.PostJob(Job.CreateDeliverItem(tank.Position, fuel, priority: 55));
         }
     }
 
     private void PostOreDeliveryJobs()
     {
-        var smelters = Machines.Where(m => m.Type == MachineType.SmelterRefinery && m.IsOnline).ToList();
-        foreach (var smelter in smelters)
+        foreach (var smelter in Machines)
         {
-            var ore = JobManager.WorldItems
-                .Where(item => item.Type == ItemType.IronOre && item.IsAvailable)
-                .OrderBy(item => Math.Abs(item.Position.X - smelter.Position.X) + Math.Abs(item.Position.Y - smelter.Position.Y))
-                .FirstOrDefault(item => !JobManager.ActiveJobs.Any(job =>
-                    job.TargetItem?.Id == item.Id));
+            if (smelter.Type != MachineType.SmelterRefinery || !smelter.IsOnline)
+                continue;
 
+            Item? ore = FindNearestUnclaimedItem(smelter.Position, ItemType.IronOre);
             if (ore != null)
                 JobManager.PostJob(Job.CreateRefineOre(smelter.Position, ore, priority: 45));
         }
     }
 
+    private int CountItemsOnSite(GridCoord position, ItemType type)
+    {
+        int count = 0;
+        foreach (var item in JobManager.WorldItems)
+        {
+            if (item.Position == position && item.Type == type && item.IsAvailable)
+                count++;
+        }
+        return count;
+    }
+
+    private int CountDeliveriesInTransit(GridCoord target, ItemType type)
+    {
+        int count = 0;
+        foreach (var job in JobManager.ActiveJobs)
+        {
+            if (job.Type == JobType.DeliverItem && job.TargetCoord == target && job.DesiredItemType == type)
+                count++;
+        }
+        return count;
+    }
+
+    private Item? FindNearestUnclaimedItem(GridCoord origin, ItemType type)
+    {
+        Item? best = null;
+        int bestDistance = int.MaxValue;
+        foreach (var item in JobManager.WorldItems)
+        {
+            if (item.Type != type || !item.IsAvailable || IsItemClaimedByAnyJob(item.Id))
+                continue;
+
+            int distance = Math.Abs(item.Position.X - origin.X) + Math.Abs(item.Position.Y - origin.Y);
+            if (distance < bestDistance)
+            {
+                bestDistance = distance;
+                best = item;
+            }
+        }
+        return best;
+    }
+
+    private bool IsItemClaimedByAnyJob(Guid itemId)
+    {
+        foreach (var job in JobManager.ActiveJobs)
+        {
+            if (job.TargetItem?.Id == itemId)
+                return true;
+        }
+        return false;
+    }
     private GridCoord? FindNearestAsteroid(GridCoord origin, int maxRange)
     {
         GridCoord? best = null;

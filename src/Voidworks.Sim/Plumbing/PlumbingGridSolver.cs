@@ -25,6 +25,12 @@ public sealed class PlumbingGridSolver
     public double PropellantPipeCapacityKgPerSecond { get; set; } = 5.0;
     public double TotalPropellantFlowRateKgPerSec { get; private set; }
 
+    // Reused by the per-tick coolant and propellant passes: partitioning allocates
+    // nothing once the scratch sets have grown to the ship's pipe count.
+    private readonly List<HashSet<GridCoord>> _scratchPartitions = new();
+    private readonly HashSet<GridCoord> _scratchPartitionVisited = new();
+    private readonly Queue<GridCoord> _scratchPartitionQueue = new();
+
     public bool IsCoolantLoopConnected(GridCoord source, GridCoord destination) =>
         ArePipesConnected(CoolantPipes, source, destination);
 
@@ -87,7 +93,7 @@ public sealed class PlumbingGridSolver
             return;
 
         // Partition coolant pipes into connected subnets
-        var subnets = PartitionPipes(CoolantPipes);
+        var subnets = PartitionPipesScratch(CoolantPipes);
 
         foreach (var subnet in subnets)
         {
@@ -181,7 +187,7 @@ public sealed class PlumbingGridSolver
             return;
         }
 
-        var subnets = PartitionPipes(PropellantPipes);
+        var subnets = PartitionPipesScratch(PropellantPipes);
         var enginesFedThroughConnectedPipes = new HashSet<Machine>();
 
         foreach (var subnet in subnets)
@@ -230,6 +236,50 @@ public sealed class PlumbingGridSolver
             if (!enginesFedThroughConnectedPipes.Contains(engine))
                 engine.IsFiring = false;
         }
+    }
+
+    private List<HashSet<GridCoord>> PartitionPipesScratch(HashSet<GridCoord> pipes)
+    {
+        _scratchPartitionVisited.Clear();
+        _scratchPartitionQueue.Clear();
+        int used = 0;
+
+        foreach (GridCoord pipe in pipes)
+        {
+            if (_scratchPartitionVisited.Contains(pipe))
+                continue;
+
+            HashSet<GridCoord> subnet;
+            if (used < _scratchPartitions.Count)
+            {
+                subnet = _scratchPartitions[used];
+                subnet.Clear();
+            }
+            else
+            {
+                subnet = new HashSet<GridCoord>();
+                _scratchPartitions.Add(subnet);
+            }
+            used++;
+
+            _scratchPartitionQueue.Enqueue(pipe);
+            _scratchPartitionVisited.Add(pipe);
+            while (_scratchPartitionQueue.Count > 0)
+            {
+                GridCoord current = _scratchPartitionQueue.Dequeue();
+                subnet.Add(current);
+                foreach (GridCoord neighbor in current.GetCardinals())
+                {
+                    if (pipes.Contains(neighbor) && _scratchPartitionVisited.Add(neighbor))
+                        _scratchPartitionQueue.Enqueue(neighbor);
+                }
+            }
+        }
+
+        if (_scratchPartitions.Count > used)
+            _scratchPartitions.RemoveRange(used, _scratchPartitions.Count - used);
+
+        return _scratchPartitions;
     }
 
     internal static List<HashSet<GridCoord>> PartitionPipes(HashSet<GridCoord> pipes)

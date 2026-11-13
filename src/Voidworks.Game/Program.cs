@@ -17,6 +17,8 @@ using Voidworks.Sim.Ship;
 string? requestedScenarioId = null;
 string? loadPath = null;
 string? savePath = null;
+string? checkSavePath = null;
+string? recoverSavePath = null;
 int? requestedTicks = null;
 bool sandboxRequested = false;
 bool benchmarkRequested = false;
@@ -48,6 +50,16 @@ for (int i = 0; i < args.Length; i++)
             throw new ArgumentException("Expected a non-negative whole number after --ticks.");
         requestedTicks = parsedTicks;
     }
+    else if (args[i].Equals("--check-save", StringComparison.OrdinalIgnoreCase))
+    {
+        if (++i >= args.Length) throw new ArgumentException("Expected a file path after --check-save.");
+        checkSavePath = args[i];
+    }
+    else if (args[i].Equals("--recover-save", StringComparison.OrdinalIgnoreCase))
+    {
+        if (++i >= args.Length) throw new ArgumentException("Expected a file path after --recover-save.");
+        recoverSavePath = args[i];
+    }
     else if (args[i].Equals("--sandbox", StringComparison.OrdinalIgnoreCase))
     {
         sandboxRequested = true;
@@ -64,6 +76,18 @@ if (loadPath != null && requestedScenarioId != null)
 if (args.Contains("--version", StringComparer.OrdinalIgnoreCase))
 {
     Console.WriteLine($"Voidworks {BuildInfo.Version}");
+    return;
+}
+
+if (checkSavePath != null)
+{
+    RunCheckSave(checkSavePath);
+    return;
+}
+
+if (recoverSavePath != null)
+{
+    RunRecoverSave(recoverSavePath);
     return;
 }
 
@@ -349,4 +373,40 @@ if (savePath != null)
 {
     SimulationSerializer.SaveToFile(sim, savePath);
     Console.WriteLine($"[Save] Wrote simulation to {Path.GetFullPath(savePath)}.");
+}
+
+static void RunCheckSave(string path)
+{
+    try
+    {
+        SaveSummary summary = SaveRecovery.Describe(path);
+        Console.WriteLine($"[Check] Save OK: {summary.Path}");
+        Console.WriteLine(
+            $"[Check] Format v{summary.SaveFormatVersion}, T+{summary.SimTime:F1}s, " +
+            $"scenario {summary.ScenarioId ?? "sandbox"}, crew {summary.CrewCount}, " +
+            $"machines {summary.MachineCount}, jobs {summary.JobCount}, " +
+            $"loose items {summary.LooseItemCount}.");
+    }
+    catch (Exception exception)
+    {
+        Console.Error.WriteLine($"[Check] Save invalid: {exception.Message}");
+        Environment.ExitCode = 1;
+    }
+
+    foreach (InterruptedSave candidate in SaveRecovery.FindInterruptedSaves(path))
+    {
+        string state = candidate.IsValid
+            ? $"valid, T+{candidate.Summary!.SimTime:F1}s"
+            : $"invalid: {candidate.Error}";
+        Console.WriteLine(
+            $"[Check] Abandoned temp {candidate.TempPath} ({state}). Use --recover-save to promote it.");
+    }
+}
+
+static void RunRecoverSave(string path)
+{
+    string? recovered = SaveRecovery.TryRecoverInterruptedSave(path, out string message);
+    Console.WriteLine($"[Recover] {message}");
+    if (recovered == null)
+        Environment.ExitCode = 1;
 }

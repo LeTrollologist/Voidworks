@@ -82,7 +82,18 @@ public static class SimulationSerializer
     public static SimulationState LoadFromFile(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        return LoadFromJson(File.ReadAllText(path));
+        string fullPath = Path.GetFullPath(path);
+        try
+        {
+            return LoadFromJson(File.ReadAllText(fullPath));
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+                                              or InvalidDataException or NotSupportedException)
+        {
+            // Every failure names the file so the UI and CLI can point at the exact save.
+            throw new InvalidDataException(
+                $"Failed to load save '{fullPath}': {exception.Message}", exception);
+        }
     }
 
     public static string SaveToJson(SimulationState sim)

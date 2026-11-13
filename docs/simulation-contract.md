@@ -326,6 +326,12 @@ The toolbar shows hovered and selected tile coordinates. The game does not injec
   non-negative numeric ranges, id uniqueness, item ownership, crew/job references,
   scenario ids/objectives, and lifecycle consistency before constructing state.
 - Saving writes a temporary file, flushes it, then atomically replaces the target.
+- If a process dies between those steps, `SaveRecovery` can list the abandoned
+  `.<file>.<guid>.tmp` candidates and validate each one; `--recover-save` promotes the
+  newest valid candidate only when the destination is missing. `--check-save` reports
+  the save summary and any abandoned candidates.
+- `LoadFromFile` names the full failing path in its `InvalidDataException`, so both the
+  UI and CLI can point at the exact save.
 
 Not persisted: the event log, `CompletedJobsHistory`, `FailedJobsHistory`, and
 wall-clock frame timing. A loaded simulation continues from the stored `SimTime`
@@ -369,7 +375,8 @@ allocation:
 - `GridCoord.GetCardinals()` returns a struct enumerator for `foreach`; the LINQ
   `Cardinals()` overload remains for low-frequency call sites.
 - `PowerGridSolver` and `PlumbingGridSolver` keep reusable scratch collections and
-  solve networks in place instead of building per-tick subnet objects.
+  solve networks in place instead of building per-tick subnet objects; delivery job
+  posting scans items and jobs directly.
 - The job board's priority, assistance, and breach-support scans run without LINQ
   allocation and exit early when there is nothing to claim.
 - Life-support warnings use struct keys and only format event text when a condition
@@ -377,7 +384,7 @@ allocation:
 - Scenario objective status strings refresh every five ticks; completion checks still
   run every tick.
 
-Current measurements (see `--benchmark`): about 0.09 ms mean and 10.1 KB allocated per
+Current measurements (see `--benchmark`): about 0.087 ms mean and 8.9 KB allocated per
 tick on the primary mission with three crew and ten machines. Rendering is not part of
 that measurement and has not been profiled: the viewport renderer now culls to the
 camera's visible tile range (`ViewportCulling`) but every visible tile is still drawn

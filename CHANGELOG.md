@@ -20,17 +20,24 @@ Continued simulation allocation work; no release cut yet.
 - **Crew tick loop** counts nearby crew and releases jobs for dead or incapacitated
   crew with plain loops rather than LINQ closures.
 - **Emergency machine scan** no longer allocates a filtered enumerator each tick.
+- **Delivery job posting** uses direct item/job scans instead of LINQ chains, and the
+  plumbing solver reuses its pipe-partition scratch sets.
+- **Save errors name the failing file**, and loading a missing slot attempts one
+  recovery from an abandoned temporary save.
+
+### Added
+
+- **Save recovery tooling:** `--check-save <path>` reports a save summary plus any
+  abandoned `.<name>.<guid>.tmp` candidates, and `--recover-save <path>` promotes the
+  newest valid candidate when the destination is missing. `SaveRecovery` exposes the
+  same operations to the UI.
+- Seven save-recovery tests and four job-selection ordering tests.
 
 ### Measured
 
 `--benchmark --ticks 3000` on `derelict-crisis` (20×9, three crew, ten machines):
-about **0.09 ms mean** and **10.1 KB allocated per tick**, down from 0.11 ms and
+about **0.087 ms mean** and **8.9 KB allocated per tick**, down from 0.11 ms and
 16.7 KB/tick in 0.5.0.
-
-### Added
-
-- Four job-selection ordering tests covering priority over distance, travel-distance
-  tie-breaks, excluded jobs, and emergency rank under a preference score.
 
 ## [0.5.0] - 2026-11-09
 

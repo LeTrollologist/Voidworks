@@ -225,6 +225,7 @@ Run it with `dotnet artifacts/win-x64/Voidworks.Game.dll`, or add `-- --headless
 
   Without `--ticks`, the benchmark runs 6000 ticks (ten simulated minutes).
 - **Save locations:** the three UI slots write to `%LOCALAPPDATA%\Voidworks\ship-save.json`, `ship-save-2.json`, and `ship-save-3.json`. `--load` and `--save` accept any path. Saves are written to a temporary file, flushed, and then renamed, so an interrupted write leaves the previous save intact.
+- **Save validation and recovery:** `--check-save <path>` prints a loaded summary (format version, simulated time, scenario, crew, machines, jobs) and lists any abandoned `.<name>.<guid>.tmp` files from an interrupted write. `--recover-save <path>` promotes the newest valid abandoned temporary file when the destination is missing. The UI also attempts this once when loading a missing save.
 - **Crash reports:** an unhandled error writes `crash-<timestamp>-<pid>.log` to `%LOCALAPPDATA%\Voidworks\logs`. The report contains the build identity, OS and runtime, command line, full exception and stack, and the most recent simulation events. Attach it when reporting a crash.
 - **Build identity:** `--version` prints the version, which also appears in the window title and the telemetry bar.
 
